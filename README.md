@@ -5,3 +5,4 @@ I decided to give WebGPU a try, in this codebase you will find simple 2d batch r
 windowing and input is handled with SDL3 and surface creation is only supports X11 display (probably ill add other platforms soon). as for the backend i use wgpu (Rust implementation)
 
 
+<img src="https://github.com/dkvilo/wgpu-native/blob/master/res/scr.png" />
