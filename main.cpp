@@ -4,6 +4,7 @@
  *
  * $file main.cpp
  */
+#include <algorithm>
 #include <cstring>
 #include <iostream>
 #include <vector>
@@ -51,10 +52,20 @@
 
 struct Vertex
 {
-  Vector2 position;
+  Vector2 position; // relative to the origin
   Vector4 color;
   Vector2 texCoord;
+  float rotation; // angle in radians
   uint32_t texIndex;
+  Vector2 translation; // per quad translation
+  float padding;       // align to 16 bytes
+};
+
+struct Uniforms
+{
+  float uTime;
+  float padding[3]; // enforce 16-byte alignment
+  Matrix4 uProjection;
 };
 
 WGPUShaderModule
@@ -113,6 +124,21 @@ struct Texture
   int32_t height;
 };
 
+enum Layer
+{
+  LAYER_BACKGROUND = 0,
+  LAYER_GAME_OBJECT = 1,
+  LAYER_UI = 2,
+  LAYER_TEXT = 3
+};
+
+struct Quad
+{
+  std::vector<Vertex> vertices;
+  std::vector<uint16_t> indices;
+  int32_t drawOrder;
+};
+
 class BatchRenderer
 {
 public:
@@ -124,18 +150,39 @@ public:
   void Initialize();
   void LoadTexture(const char* filePath, int32_t textureIndex);
   void LoadFont(const char* fontFilePath);
-  void AddQuad(Vector2 position, float width, float height, Vector4 color);
+
+  void AddQuad(Vector2 position,
+               float width,
+               float height,
+               Vector4 color,
+               float rotation,
+               Vector2 origin,
+               int32_t drawOrder);
+
   void AddTexturedQuad(Vector2 position,
                        float width,
                        float height,
                        float texCoords[4][2],
                        uint32_t texIndex,
-                       Vector4 color);
-  void AddLine(Vector2 start, Vector2 end, float thickness, Vector4 color);
+                       Vector4 color,
+                       float rotation,
+                       Vector2 origin,
+                       int32_t drawOrder);
+
+  void AddLine(Vector2 start,
+               Vector2 end,
+               float thickness,
+               Vector4 color,
+               float rotation,
+               Vector2 origin,
+               int32_t drawOrder);
+
   void DrawText(const char* text,
                 Vector2 position,
                 float fontSize,
-                Vector4 color);
+                Vector4 color,
+                int32_t drawOrder);
+
   Vector2 MeasureText(const char* text, float fontSize);
   void Render(WGPURenderPassEncoder passEncoder);
 
@@ -148,6 +195,7 @@ private:
   WGPURenderPipeline pipeline;
   WGPUBuffer vertexBuffer;
   WGPUBuffer indexBuffer;
+  WGPUBuffer uniformBuffer;
   std::vector<Vertex> vertices;
   std::vector<uint16_t> indices;
   size_t numQuads;
@@ -162,6 +210,9 @@ private:
   WGPUBindGroupLayout bindGroupLayout;
   WGPUBindGroup bindGroup;
   Texture textures[2];
+  Uniforms currentUniforms;
+
+  std::vector<Quad> quads;
 
   struct Font
   {
@@ -171,16 +222,6 @@ private:
     stbtt_bakedchar cdata[96]; // ASCII 32..126 is 95 glyphs (sorry but no
                                // Georgian lang support for now...)
   } fontData;
-
-public:
-  float ConvertX(float x) const
-  {
-    return (x / static_cast<float>(windowWidth)) * 2.0f - 1.0f;
-  }
-  float ConvertY(float y) const
-  {
-    return 1.0f - (y / static_cast<float>(windowHeight)) * 2.0f;
-  }
 };
 
 BatchRenderer::BatchRenderer(WGPUDevice device,
@@ -194,6 +235,7 @@ BatchRenderer::BatchRenderer(WGPUDevice device,
   , numQuads(0)
   , vertexBuffer(nullptr)
   , indexBuffer(nullptr)
+  , uniformBuffer(nullptr)
   , pipeline(nullptr)
   , vertexShaderModule(nullptr)
   , fragmentShaderModule(nullptr)
@@ -246,29 +288,54 @@ void
 BatchRenderer::CreatePipeline()
 {
   const char* vertexShaderCode = R"(
-        struct VertexInput {
-            @location(0) position : vec2<f32>,
-            @location(1) color : vec4<f32>,
-            @location(2) texCoord : vec2<f32>,
-            @location(3) texIndex : u32,
-        };
+      struct Uniforms {
+          uTime: f32,
+          uProjection: mat4x4<f32>,
+      };
 
-        struct VertexOutput {
-            @builtin(position) position : vec4<f32>,
-            @location(0) color : vec4<f32>,
-            @location(1) texCoord : vec2<f32>,
-            @location(2) texIndex : u32,
-        };
+      @group(0) @binding(4) var<uniform> uniforms: Uniforms;
 
-        @vertex
-        fn main(input : VertexInput) -> VertexOutput {
-            var output : VertexOutput;
-            output.position = vec4<f32>(input.position, 0.0, 1.0);
-            output.color = input.color;
-            output.texCoord = input.texCoord;
-            output.texIndex = input.texIndex;
-            return output;
-        }
+      struct VertexInput {
+          @location(0) position : vec2<f32>,
+          @location(1) color    : vec4<f32>,
+          @location(2) texCoord : vec2<f32>,
+          @location(3) rotation : f32,
+          @location(4) texIndex : u32,
+          @location(5) translation : vec2<f32>,
+      };
+
+      struct VertexOutput {
+          @builtin(position) Position : vec4<f32>,
+          @location(0) color          : vec4<f32>,
+          @location(1) texCoord       : vec2<f32>,
+          @location(2) texIndex       : u32,
+      };
+
+      @vertex
+      fn main(input : VertexInput) -> VertexOutput {
+          // rotation matrix
+          let cosTheta = cos(input.rotation);
+          let sinTheta = sin(input.rotation);
+
+          let rotationMatrix = mat2x2<f32>(
+              cosTheta, -sinTheta,
+              sinTheta, cosTheta
+          );
+
+          // rotation
+          let rotatedPosition = rotationMatrix * input.position;
+
+          // translation
+          let translatedPosition = rotatedPosition + input.translation;
+
+          // projection
+          var output: VertexOutput;
+          output.Position = uniforms.uProjection * vec4<f32>(translatedPosition, 0.0, 1.0);
+          output.color = input.color;
+          output.texCoord = input.texCoord;
+          output.texIndex = input.texIndex;
+          return output;
+      }
     )";
 
   const char* fragmentShaderCode = R"(
@@ -301,22 +368,38 @@ BatchRenderer::CreatePipeline()
   vertexShaderModule = createShaderModule(device, vertexShaderCode);
   fragmentShaderModule = createShaderModule(device, fragmentShaderCode);
 
-  // vertex attributes
-  WGPUVertexAttribute attributes[4];
+  WGPUVertexAttribute attributes[6];
   attributes[0] = { WGPUVertexFormat_Float32x2, offsetof(Vertex, position), 0 };
   attributes[1] = { WGPUVertexFormat_Float32x4, offsetof(Vertex, color), 1 };
   attributes[2] = { WGPUVertexFormat_Float32x2, offsetof(Vertex, texCoord), 2 };
-  attributes[3] = { WGPUVertexFormat_Uint32, offsetof(Vertex, texIndex), 3 };
+  attributes[3] = { WGPUVertexFormat_Float32, offsetof(Vertex, rotation), 3 };
+  attributes[4] = { WGPUVertexFormat_Uint32, offsetof(Vertex, texIndex), 4 };
+  attributes[5] = { WGPUVertexFormat_Float32x2,
+                    offsetof(Vertex, translation),
+                    5 };
+
+  std::cout << "sizeof(Vertex): " << sizeof(Vertex) << std::endl;
+  std::cout << "offsetof(position): " << offsetof(Vertex, position)
+            << std::endl;
+  std::cout << "offsetof(color): " << offsetof(Vertex, color) << std::endl;
+  std::cout << "offsetof(texCoord): " << offsetof(Vertex, texCoord)
+            << std::endl;
+  std::cout << "offsetof(rotation): " << offsetof(Vertex, rotation)
+            << std::endl;
+  std::cout << "offsetof(texIndex): " << offsetof(Vertex, texIndex)
+            << std::endl;
+  std::cout << "offsetof(translation): " << offsetof(Vertex, translation)
+            << std::endl;
 
   // vertex buffer layout
   WGPUVertexBufferLayout vertexBufferLayout = {};
   vertexBufferLayout.arrayStride = sizeof(Vertex);
-  vertexBufferLayout.attributeCount = 4;
+  vertexBufferLayout.attributeCount = 6;
   vertexBufferLayout.attributes = attributes;
   vertexBufferLayout.stepMode = WGPUVertexStepMode_Vertex;
 
   // bind group layout
-  WGPUBindGroupLayoutEntry bglEntries[4] = {};
+  WGPUBindGroupLayoutEntry bglEntries[5] = {};
   bglEntries[0].binding = 0;
   bglEntries[0].visibility = WGPUShaderStage_Fragment;
   bglEntries[0].texture.sampleType = WGPUTextureSampleType_Float;
@@ -337,8 +420,13 @@ BatchRenderer::CreatePipeline()
   bglEntries[3].visibility = WGPUShaderStage_Fragment;
   bglEntries[3].sampler.type = WGPUSamplerBindingType_Filtering;
 
+  bglEntries[4].binding = 4;
+  bglEntries[4].visibility = WGPUShaderStage_Vertex;
+  bglEntries[4].buffer.type = WGPUBufferBindingType_Uniform;
+  bglEntries[4].buffer.minBindingSize = sizeof(Uniforms);
+
   WGPUBindGroupLayoutDescriptor bglDesc = {};
-  bglDesc.entryCount = 4;
+  bglDesc.entryCount = 5;
   bglDesc.entries = bglEntries;
 
   bindGroupLayout = wgpuDeviceCreateBindGroupLayout(device, &bglDesc);
@@ -413,6 +501,24 @@ BatchRenderer::CreateBuffers()
   indexBufferDesc.usage = WGPUBufferUsage_Index | WGPUBufferUsage_CopyDst;
   indexBufferDesc.mappedAtCreation = false;
   indexBuffer = wgpuDeviceCreateBuffer(device, &indexBufferDesc);
+
+  // Uniform buffer
+  WGPUBufferDescriptor uniformBufferDesc = {};
+  uniformBufferDesc.size = sizeof(Uniforms);
+  uniformBufferDesc.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
+  uniformBufferDesc.mappedAtCreation = false;
+  uniformBuffer = wgpuDeviceCreateBuffer(device, &uniformBufferDesc);
+  if (!uniformBuffer) {
+    std::cerr << "Failed to create uniform buffer!" << std::endl;
+    return;
+  }
+
+  // initial uniform values
+  Uniforms initialUniforms = {};
+  initialUniforms.uProjection = matrix4_identity();
+
+  wgpuQueueWriteBuffer(
+    queue, uniformBuffer, 0, &initialUniforms, sizeof(Uniforms));
 }
 
 void
@@ -615,186 +721,273 @@ BatchRenderer::LoadFont(const char* fontFilePath)
 void
 BatchRenderer::CreateBindGroup()
 {
-  WGPUBindGroupEntry bgEntries[4] = {};
+  WGPUBindGroupEntry bgEntries[5] = {};
 
-  // texture 0
+  // Texture 0
   bgEntries[0].binding = 0;
   bgEntries[0].textureView = textures[0].textureView;
-
   bgEntries[1].binding = 1;
   bgEntries[1].sampler = textures[0].sampler;
 
-  // texture 1 (Font)
+  // Texture 1 (Font)
   bgEntries[2].binding = 2;
   bgEntries[2].textureView = textures[1].textureView;
-
   bgEntries[3].binding = 3;
   bgEntries[3].sampler = textures[1].sampler;
 
+  // Uniform buffer
+  bgEntries[4].binding = 4;
+  bgEntries[4].buffer = uniformBuffer;
+  bgEntries[4].offset = 0;
+  bgEntries[4].size = sizeof(Uniforms);
+
+  // Validate bind group entries
+  for (int i = 0; i < 4; i++) {
+    if (!bgEntries[i].textureView && !bgEntries[i].sampler) {
+      std::cerr << "Invalid texture/sampler at binding " << i << std::endl;
+      return;
+    }
+  }
+  if (!bgEntries[4].buffer) {
+    std::cerr << "Uniform buffer not properly set at binding 4!" << std::endl;
+    return;
+  }
+
   WGPUBindGroupDescriptor bgDesc = {};
   bgDesc.layout = bindGroupLayout;
-  bgDesc.entryCount = 4;
+  bgDesc.entryCount = 5;
   bgDesc.entries = bgEntries;
 
   bindGroup = wgpuDeviceCreateBindGroup(device, &bgDesc);
+
+  // Check bind group creation
+  if (!bindGroup) {
+    std::cerr << "Failed to create bind group!" << std::endl;
+  } else {
+    std::cout << "Bind group successfully created!" << std::endl;
+  }
 }
+
+#define ORIGIN_CENTER { 0.5f, 0.5f }
 
 void
 BatchRenderer::AddQuad(Vector2 position,
                        float width,
                        float height,
-                       Vector4 color)
+                       Vector4 color,
+                       float rotation,
+                       Vector2 origin,
+                       int32_t drawOrder = 0)
 {
-  if (numQuads >= 1000)
+  if (quads.size() >= 1000)
     return;
 
-  float halfWidth = width / 2.0f;
-  float halfHeight = height / 2.0f;
+  Quad quad;
+  quad.drawOrder = drawOrder;
 
-  float left = position.x - halfWidth;
-  float right = position.x + halfWidth;
-  float top = position.y - halfHeight;
-  float bottom = position.y + halfHeight;
+  // Calculate origin offset
+  float originX = origin.x * width;
+  float originY = origin.y * height;
 
-  Vertex v0 = { { ConvertX(left), ConvertY(bottom) },
-                { color.x, color.y, color.z, color.w },
+  // Define vertices relative to the origin
+  Vertex v0 = { { -originX, height - originY }, // Top-left
+                color,
                 { 0.0f, 1.0f },
-                0u };
-  Vertex v1 = { { ConvertX(right), ConvertY(bottom) },
-                { color.x, color.y, color.z, color.w },
+                rotation,
+                0u,
+                position,
+                0.0f };
+
+  Vertex v1 = { { width - originX, height - originY }, // Top-right
+                color,
                 { 1.0f, 1.0f },
-                0u };
-  Vertex v2 = { { ConvertX(right), ConvertY(top) },
-                { color.x, color.y, color.z, color.w },
+                rotation,
+                0u,
+                position,
+                0.0f };
+
+  Vertex v2 = { { width - originX, -originY }, // Bottom-right
+                color,
                 { 1.0f, 0.0f },
-                0u };
-  Vertex v3 = { { ConvertX(left), ConvertY(top) },
-                { color.x, color.y, color.z, color.w },
+                rotation,
+                0u,
+                position,
+                0.0f };
+
+  Vertex v3 = { { -originX, -originY }, // Bottom-left
+                color,
                 { 0.0f, 0.0f },
-                0u };
+                rotation,
+                0u,
+                position,
+                0.0f };
 
-  vertices.insert(vertices.end(), { v0, v1, v2, v3 });
+  quad.vertices = { v0, v1, v2, v3 };
 
-  uint16_t baseIndex = numQuads * 4;
-  indices.insert(indices.end(),
-                 { baseIndex,
-                   (uint16_t)(baseIndex + 1),
-                   (uint16_t)(baseIndex + 2),
-                   baseIndex,
-                   (uint16_t)(baseIndex + 2),
-                   (uint16_t)(baseIndex + 3) });
+  // Define indices for two triangles
+  quad.indices = { 0, 1, 2, 0, 2, 3 };
 
-  numQuads++;
-}
-
-void
-BatchRenderer::AddTexturedQuad(
-
-  Vector2 position,
-  float width,
-  float height,
-  float texCoords[4][2],
-  uint32_t texIndex,
-  Vector4 color)
-{
-  if (numQuads >= 1000)
-    return;
-
-  float halfWidth = width / 2.0f;
-  float halfHeight = height / 2.0f;
-
-  float left = position.x - halfWidth;
-  float right = position.x + halfWidth;
-  float top = position.y - halfHeight;
-  float bottom = position.y + halfHeight;
-
-  Vertex v0 = { { ConvertX(left), ConvertY(bottom) },
-                { color.x, color.y, color.z, color.w },
-                { texCoords[0][0], texCoords[0][1] },
-                texIndex };
-  Vertex v1 = { { ConvertX(right), ConvertY(bottom) },
-                { color.x, color.y, color.z, color.w },
-                { texCoords[1][0], texCoords[1][1] },
-                texIndex };
-  Vertex v2 = { { ConvertX(right), ConvertY(top) },
-                { color.x, color.y, color.z, color.w },
-                { texCoords[2][0], texCoords[2][1] },
-                texIndex };
-  Vertex v3 = { { ConvertX(left), ConvertY(top) },
-                { color.x, color.y, color.z, color.w },
-                { texCoords[3][0], texCoords[3][1] },
-                texIndex };
-
-  vertices.insert(vertices.end(), { v0, v1, v2, v3 });
-
-  uint16_t baseIndex = numQuads * 4;
-  indices.insert(indices.end(),
-                 { baseIndex,
-                   (uint16_t)(baseIndex + 1),
-                   (uint16_t)(baseIndex + 2),
-                   baseIndex,
-                   (uint16_t)(baseIndex + 2),
-                   (uint16_t)(baseIndex + 3) });
-
-  numQuads++;
+  quads.push_back(quad);
 }
 
 void
 BatchRenderer::AddLine(Vector2 start,
                        Vector2 end,
                        float thickness,
-                       Vector4 color)
+                       Vector4 color,
+                       float rotation = 0.0f,
+                       Vector2 origin = ORIGIN_CENTER,
+                       int32_t drawOrder = 0)
 {
-  if (numQuads >= 1000)
+  if (quads.size() >= 1000)
     return;
+
+  Quad quad;
+  quad.drawOrder = drawOrder;
 
   Vector2 dir = { end.x - start.x, end.y - start.y };
   float length = sqrt(dir.x * dir.x + dir.y * dir.y);
 
   if (length == 0.0f)
-    return; // cannot create a line with zero length
+    return; // Cannot create a line with zero length
 
   Vector2 normDir = { dir.x / length, dir.y / length };
-
   Vector2 perp = { -normDir.y, normDir.x };
 
   float halfThickness = thickness / 2.0f;
   Vector2 offset = { perp.x * halfThickness, perp.y * halfThickness };
 
-  Vector2 v1 = { start.x + offset.x, start.y + offset.y };
-  Vector2 v2 = { start.x - offset.x, start.y - offset.y };
-  Vector2 v3 = { end.x - offset.x, end.y - offset.y };
-  Vector2 v4 = { end.x + offset.x, end.y + offset.y };
+  // Calculate center point of the line
+  Vector2 center = { (start.x + end.x) * 0.5f, (start.y + end.y) * 0.5f };
 
-  Vertex vertex0 = { { ConvertX(v1.x), ConvertY(v1.y) },
-                     { color.x, color.y, color.z, color.w },
-                     { 0.0f, 0.0f }, // texCoord not used for color quads
-                     0u };
-  Vertex vertex1 = { { ConvertX(v2.x), ConvertY(v2.y) },
-                     { color.x, color.y, color.z, color.w },
-                     { 0.0f, 0.0f },
-                     0u };
-  Vertex vertex2 = { { ConvertX(v3.x), ConvertY(v3.y) },
-                     { color.x, color.y, color.z, color.w },
-                     { 0.0f, 0.0f },
-                     0u };
-  Vertex vertex3 = { { ConvertX(v4.x), ConvertY(v4.y) },
-                     { color.x, color.y, color.z, color.w },
-                     { 0.0f, 0.0f },
-                     0u };
+  // Calculate vertices relative to the center
+  Vector2 v1 = { start.x - center.x + offset.x, start.y - center.y + offset.y };
+  Vector2 v2 = { start.x - center.x - offset.x, start.y - center.y - offset.y };
+  Vector2 v3 = { end.x - center.x - offset.x, end.y - center.y - offset.y };
+  Vector2 v4 = { end.x - center.x + offset.x, end.y - center.y + offset.y };
 
-  vertices.insert(vertices.end(), { vertex0, vertex1, vertex2, vertex3 });
-  uint16_t baseIndex = static_cast<uint16_t>(numQuads * 4);
+  Vertex vertex0 = { { v1.x, v1.y }, color, { 0.0f, 0.0f }, rotation, 0u,
+                     center,         0.0f };
+  Vertex vertex1 = { { v2.x, v2.y }, color, { 0.0f, 0.0f }, rotation, 0u,
+                     center,         0.0f };
+  Vertex vertex2 = { { v3.x, v3.y }, color, { 0.0f, 0.0f }, rotation, 0u,
+                     center,         0.0f };
+  Vertex vertex3 = { { v4.x, v4.y }, color, { 0.0f, 0.0f }, rotation, 0u,
+                     center,         0.0f };
 
-  indices.insert(indices.end(),
-                 { baseIndex,
-                   static_cast<uint16_t>(baseIndex + 1),
-                   static_cast<uint16_t>(baseIndex + 2),
-                   baseIndex,
-                   static_cast<uint16_t>(baseIndex + 2),
-                   static_cast<uint16_t>(baseIndex + 3) });
+  quad.vertices = { vertex0, vertex1, vertex2, vertex3 };
+  quad.indices = { 0, 1, 2, 0, 2, 3 };
 
-  numQuads++;
+  quads.push_back(quad);
+}
+
+void
+BatchRenderer::AddTexturedQuad(Vector2 position,
+                               float width,
+                               float height,
+                               float texCoords[4][2],
+                               uint32_t texIndex,
+                               Vector4 color,
+                               float rotation = 0.0f,
+                               Vector2 origin = ORIGIN_CENTER,
+                               int32_t drawOrder = 0)
+{
+  if (quads.size() >= 1000)
+    return;
+
+  Quad quad;
+  quad.drawOrder = drawOrder;
+
+  // Calculate origin offset
+  float originX = origin.x * width;
+  float originY = origin.y * height;
+
+  // Define vertices relative to the origin
+  Vertex v0 = { { -originX, height - originY }, // Top-left
+                color,
+                { texCoords[0][0], texCoords[0][1] },
+                rotation,
+                texIndex,
+                position,
+                0.0f };
+
+  Vertex v1 = { { width - originX, height - originY }, // Top-right
+                color,
+                { texCoords[1][0], texCoords[1][1] },
+                rotation,
+                texIndex,
+                position,
+                0.0f };
+
+  Vertex v2 = { { width - originX, -originY }, // Bottom-right
+                color,
+                { texCoords[2][0], texCoords[2][1] },
+                rotation,
+                texIndex,
+                position,
+                0.0f };
+
+  Vertex v3 = { { -originX, -originY }, // Bottom-left
+                color,
+                { texCoords[3][0], texCoords[3][1] },
+                rotation,
+                texIndex,
+                position,
+                0.0f };
+
+  quad.vertices = { v0, v1, v2, v3 };
+  quad.indices = { 0, 1, 2, 0, 2, 3 };
+
+  quads.push_back(quad);
+}
+
+void
+BatchRenderer::DrawText(const char* text,
+                        Vector2 position,
+                        float fontSize,
+                        Vector4 color,
+                        int32_t drawOrder = 0.0f)
+{
+  // convert to ndc
+  float posX = (position.x / static_cast<float>(windowWidth)) * 2.0f - 1.0f;
+  float posY = 1.0f - (position.y / static_cast<float>(windowHeight)) * 2.0f;
+
+  float scale = fontSize / 90.0f; // note (David): 90 is baked font size
+
+  for (const char* p = text; *p; ++p) {
+    if (*p == '\n') {
+      posY += fontSize;
+      posX = position.x;
+      continue;
+    }
+
+    char c = *p;
+    if (c < 32 || c >= 128)
+      continue;
+
+    stbtt_aligned_quad q;
+    stbtt_GetBakedQuad(fontData.cdata, 512, 512, c - 32, &posX, &posY, &q, 1);
+
+    float x0 = q.x0 * scale;
+    float y0 = q.y0 * scale;
+    float x1 = q.x1 * scale;
+    float y1 = q.y1 * scale;
+
+    float w = x1 - x0;
+    float h = y1 - y0;
+
+    Vector2 center = { position.x + x0 + w / 2.0f, position.y + y0 + h / 2.0f };
+
+    float texCoords[4][2] = {
+      { q.s0, q.t1 }, // bottom-left
+      { q.s1, q.t1 }, // bottom-right
+      { q.s1, q.t0 }, // top-right
+      { q.s0, q.t0 }, // top-left
+    };
+
+    AddTexturedQuad(
+      center, w, h, texCoords, 2, color, 0.0f, ORIGIN_CENTER, drawOrder);
+  }
 }
 
 Vector2
@@ -835,63 +1028,52 @@ BatchRenderer::MeasureText(const char* text, float fontSize)
 }
 
 void
-BatchRenderer::DrawText(const char* text,
-                        Vector2 position,
-                        float fontSize,
-                        Vector4 color)
-{
-  float posX = position.x;
-  float posY = position.y;
-
-  float scale = fontSize / 90.0f; // note (David): 90 is baked font size
-
-  for (const char* p = text; *p; ++p) {
-    if (*p == '\n') {
-      posY += fontSize;
-      posX = position.x;
-      continue;
-    }
-
-    char c = *p;
-    if (c < 32 || c >= 128)
-      continue;
-
-    stbtt_aligned_quad q;
-    stbtt_GetBakedQuad(fontData.cdata, 512, 512, c - 32, &posX, &posY, &q, 1);
-
-    float x0 = q.x0 * scale;
-    float y0 = q.y0 * scale;
-    float x1 = q.x1 * scale;
-    float y1 = q.y1 * scale;
-
-    float w = x1 - x0;
-    float h = y1 - y0;
-
-    // Center of the quad
-    Vector2 center = { position.x + x0 + w / 2.0f, position.y + y0 + h / 2.0f };
-
-    float texCoords[4][2] = {
-      { q.s0, q.t1 }, // bottom-left
-      { q.s1, q.t1 }, // bottom-right
-      { q.s1, q.t0 }, // top-right
-      { q.s0, q.t0 }, // top-left
-    };
-
-    AddTexturedQuad(center, w, h, texCoords, 2, color);
-  }
-}
-
-void
 BatchRenderer::Render(WGPURenderPassEncoder passEncoder)
 {
-  if (numQuads == 0)
+  if (quads.empty())
     return;
 
-  // update buffers
+  // sorting the quads based on drawOrder (ascending order)
+  std::stable_sort(
+    quads.begin(), quads.end(), [](const Quad& a, const Quad& b) {
+      return a.drawOrder < b.drawOrder;
+    });
+
+  vertices.clear();
+  indices.clear();
+  numQuads = 0;
+
+  // batch sorted quads
+  for (const auto& quad : quads) {
+    uint16_t baseIndex = static_cast<uint16_t>(numQuads * 4);
+    for (auto index : quad.indices) {
+      indices.push_back(baseIndex + index);
+    }
+    vertices.insert(vertices.end(), quad.vertices.begin(), quad.vertices.end());
+    numQuads++;
+  }
+
+  // upload data to GPU buffers
   wgpuQueueWriteBuffer(
     queue, vertexBuffer, 0, vertices.data(), vertices.size() * sizeof(Vertex));
   wgpuQueueWriteBuffer(
     queue, indexBuffer, 0, indices.data(), indices.size() * sizeof(uint16_t));
+
+  // update uniforms
+  currentUniforms.uTime = static_cast<float>(SDL_GetTicks()) / 1000.0f;
+
+  float left = 0.0f;
+  float right = static_cast<float>(windowWidth);
+  float bottom = static_cast<float>(windowHeight);
+  float top = 0.0f;
+  float near = -1.0f;
+  float far = 1.0f;
+
+  currentUniforms.uProjection =
+    matrix4_orthographic(left, right, bottom, top, near, far);
+
+  wgpuQueueWriteBuffer(
+    queue, uniformBuffer, 0, &currentUniforms, sizeof(Uniforms));
 
   // set pipeline and buffers
   wgpuRenderPassEncoderSetPipeline(passEncoder, pipeline);
@@ -903,13 +1085,11 @@ BatchRenderer::Render(WGPURenderPassEncoder passEncoder)
   // set bind group for textures
   wgpuRenderPassEncoderSetBindGroup(passEncoder, 0, bindGroup, 0, nullptr);
 
-  // draw
+  // draw quads
   wgpuRenderPassEncoderDrawIndexed(passEncoder, numQuads * 6, 1, 0, 0, 0);
 
-  // reset data for next frame
-  vertices.clear();
-  indices.clear();
-  numQuads = 0;
+  // reset for next frame
+  quads.clear();
 }
 
 struct SpriteFrameDesc
@@ -940,20 +1120,44 @@ TextureSpriteTexCoords(SpriteFrameDesc desc, float texCoords[4][2])
 }
 
 void
-DrawBoundingBox(BatchRenderer& renderer, const BoundingBox& bbox, Vector4 color)
+DrawBoundingBox(BatchRenderer& renderer,
+                const BoundingBox& bbox,
+                Vector4 color,
+                float rotation,
+                int32_t drawOrder)
 {
   // Top Edge
-  renderer.AddLine(
-    { bbox.min.x, bbox.min.y }, { bbox.max.x, bbox.min.y }, 1.0f, color);
+  renderer.AddLine({ bbox.min.x, bbox.min.y },
+                   { bbox.max.x, bbox.min.y },
+                   1.0f,
+                   color,
+                   rotation,
+                   ORIGIN_CENTER,
+                   drawOrder);
   // Right Edge
-  renderer.AddLine(
-    { bbox.max.x, bbox.min.y }, { bbox.max.x, bbox.max.y }, 1.0f, color);
+  renderer.AddLine({ bbox.max.x, bbox.min.y },
+                   { bbox.max.x, bbox.max.y },
+                   1.0f,
+                   color,
+                   rotation,
+                   ORIGIN_CENTER,
+                   drawOrder);
   // Bottom Edge
-  renderer.AddLine(
-    { bbox.max.x, bbox.max.y }, { bbox.min.x, bbox.max.y }, 1.0f, color);
+  renderer.AddLine({ bbox.max.x, bbox.max.y },
+                   { bbox.min.x, bbox.max.y },
+                   1.0f,
+                   color,
+                   rotation,
+                   ORIGIN_CENTER,
+                   drawOrder);
   // Left Edge
-  renderer.AddLine(
-    { bbox.min.x, bbox.max.y }, { bbox.min.x, bbox.min.y }, 1.0f, color);
+  renderer.AddLine({ bbox.min.x, bbox.max.y },
+                   { bbox.min.x, bbox.min.y },
+                   1.0f,
+                   color,
+                   rotation,
+                   ORIGIN_CENTER,
+                   drawOrder);
 }
 
 Vector2 mouse = {};
@@ -1089,14 +1293,13 @@ main(int32_t argc, char* argv[])
     deltaTime = (float)(currentTime - lastTime) / SDL_GetPerformanceFrequency();
     lastTime = currentTime;
 
-    // Update FPS Timer and Frame Count
     fpsTimer += deltaTime;
     frameCount++;
 
-    if (fpsTimer >= 1.0f) { // Every second
+    if (fpsTimer >= 1.0f) { // every second
       fps = frameCount / fpsTimer;
       frameCount = 0;
-      fpsTimer -= 1.0f; // Subtract 1 second to handle any extra time
+      fpsTimer -= 1.0f; // subtract 1 second to handle any extra time
     }
 
     while (SDL_PollEvent(&e)) {
@@ -1108,10 +1311,13 @@ main(int32_t argc, char* argv[])
         case SDL_EVENT_WINDOW_RESIZED: {
           int32_t newWidth, newHeight;
           SDL_GetWindowSize(window, &newWidth, &newHeight);
+
           batchRenderer.windowWidth = newWidth;
           batchRenderer.windowHeight = newHeight;
+
           config.width = newWidth;
           config.height = newHeight;
+
           wgpuSurfaceConfigure(surface, &config);
         } break;
 
@@ -1154,6 +1360,8 @@ main(int32_t argc, char* argv[])
     if (position.y > batchRenderer.windowHeight)
       position.y = batchRenderer.windowHeight;
 
+    position = vector2_lerp(position, mouse, deltaTime);
+
     // RENDER -----------------------------------------------
 
     WGPUSurfaceTexture surfaceTexture;
@@ -1173,7 +1381,10 @@ main(int32_t argc, char* argv[])
     colorAttachment.resolveTarget = nullptr;
     colorAttachment.loadOp = WGPULoadOp_Clear;
     colorAttachment.storeOp = WGPUStoreOp_Store;
-    colorAttachment.clearValue = { 0.1, 0.1, 0.1, 1.0 };
+
+    colorAttachment.clearValue = {
+      106.f / 255.0f, 176.f / 255.0f, 76.0f / 255.0f, 1.0
+    };
 
     WGPURenderPassDescriptor renderPassDesc = {};
     renderPassDesc.colorAttachmentCount = 1;
@@ -1198,32 +1409,52 @@ main(int32_t argc, char* argv[])
     float rotationSpeed = 15.0f;
     float distanceFromQuad = 10.0f;
 
-    batchRenderer.AddQuad(position, 100, 100, color);
+    batchRenderer.AddQuad(position, 100, 100, color, 0.0f, ORIGIN_CENTER, 1);
 
     char dbuffer[255];
     sprintf(dbuffer, "%f, %f", position.x, position.y);
 
-    rotationAngle += rotationSpeed * deltaTime;
+    rotationAngle = rotationSpeed * deltaTime;
     if (rotationAngle > 2.0f * M_PI) {
       rotationAngle -= 2.0f * M_PI;
     }
+
+    float angle = atan2f(mouse.y, mouse.x);
 
     Vector2 quadCenter = { position.x, position.y };
     float textX = quadCenter.x + distanceFromQuad * cos(rotationAngle);
     float textY = quadCenter.y + distanceFromQuad * sin(rotationAngle);
     Vector2 textPosition = { textX, textY };
 
-    batchRenderer.DrawText(dbuffer, textPosition, 30.0f, BLUE);
+    batchRenderer.AddQuad(
+      position, 50, 50, GREEN, angle, ORIGIN_CENTER, LAYER_GAME_OBJECT);
+    batchRenderer.AddQuad(
+      { 600, 450 }, 150, 75, BLUE, -angle, ORIGIN_CENTER, LAYER_BACKGROUND);
 
-    batchRenderer.AddQuad(textPosition, 50, 50, GREEN);
-    batchRenderer.AddQuad({ 600, 450 }, 150, 75, BLUE);
+    batchRenderer.AddLine(
+      { 100.0f, 300.0f }, { 700.0f, 300.0f }, 10.0f, RED, angle);
+    batchRenderer.AddLine(
+      { 400.0f, 100.0f }, { 400.0f, 500.0f }, 10.0f, GREEN, angle);
+    batchRenderer.AddLine(
+      { 100.0f, 100.0f }, { 700.0f, 500.0f }, 10.0f, BLUE, angle);
 
-    batchRenderer.AddLine({ 100.0f, 300.0f }, { 700.0f, 300.0f }, 10.0f, RED);
-    batchRenderer.AddLine({ 400.0f, 100.0f }, { 400.0f, 500.0f }, 10.0f, GREEN);
-    batchRenderer.AddLine({ 100.0f, 100.0f }, { 700.0f, 500.0f }, 10.0f, BLUE);
+    batchRenderer.AddTexturedQuad({ 400, 300 },
+                                  200,
+                                  200,
+                                  texCoords,
+                                  1,
+                                  WHITE,
+                                  angle,
+                                  ORIGIN_CENTER,
+                                  LAYER_BACKGROUND);
 
-    batchRenderer.AddTexturedQuad({ 400, 300 }, 200, 200, texCoords, 1, WHITE);
-    batchRenderer.DrawText("Hello, WebGPU!", { 100.0f, 100.0f }, 90.0f, WHITE);
+    batchRenderer.DrawText("Hello, WebGPU!",
+                           { 100.0f - 2.0f, 100.0f - 2.0f },
+                           90.0f,
+                           BLACK,
+                           LAYER_BACKGROUND);
+    batchRenderer.DrawText(
+      "Hello, WebGPU!", { 100.0f, 100.0f }, 90.0f, WHITE, LAYER_BACKGROUND);
 
     char buffer[255];
     sprintf(buffer, "Global: %.0f,%.0f", global_mouse.x, global_mouse.y);
@@ -1234,14 +1465,21 @@ main(int32_t argc, char* argv[])
     sprintf(buffer, "Relative: %.0f, %.0f", mouse.x, mouse.y);
     batchRenderer.DrawText(buffer, { 10, 60 }, 30.0f, WHITE);
 
-    DrawBoundingBox(batchRenderer, playerBB, YELLOW);
+    DrawBoundingBox(batchRenderer, playerBB, YELLOW, angle, LAYER_GAME_OBJECT);
 
     char fpsBuffer[64];
     sprintf(
       fpsBuffer, "FPS: %.0f / Frame Time: %.3f ms", fps, deltaTime * 1000.0f);
     Vector2 text_size = batchRenderer.MeasureText(fpsBuffer, 30.0f);
 
-    batchRenderer.DrawText(fpsBuffer, { 10.0f, 500 - 90 }, 30.0f, WHITE);
+    batchRenderer.DrawText(
+      fpsBuffer, { 10.0f, config.height - text_size.y }, 30.0f, WHITE);
+
+    char debug_text[64];
+    sprintf(debug_text, "Angle: %f", angle);
+    batchRenderer.DrawText(
+      debug_text, { mouse.x + 2.0f, mouse.y + 2.0f }, 30.0f, BLACK, LAYER_TEXT);
+    batchRenderer.DrawText(debug_text, mouse, 30.0f, WHITE, LAYER_TEXT);
 
     batchRenderer.Render(passEncoder);
 
