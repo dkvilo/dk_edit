@@ -68,6 +68,12 @@ CreateBoundingBoxFromCenter(Vector2* position, float width, float height);
 BoundingBox
 CreateBoundingBoxFromTopLeft(Vector2* position, float width, float height);
 
+bool
+IsMouseOverPoint(Vector2 mousePos, Vector2 pointPos, float radius);
+
+float
+Clamp(float value, float minVal, float maxVal);
+
 Quaternion
 quaternion(float x, float y, float z, float w);
 

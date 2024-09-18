@@ -1,7 +1,13 @@
-#include "math.h"
+#include "Math.h"
 #include <math.h>
 
-
+bool
+IsMouseOverPoint(Vector2 mousePos, Vector2 pointPos, float radius)
+{
+  float dx = mousePos.x - pointPos.x;
+  float dy = mousePos.y - pointPos.y;
+  return (dx * dx + dy * dy) <= (radius * radius);
+}
 
 bool
 IsPointInside(BoundingBox* bbox, Vector2* point)
@@ -50,6 +56,16 @@ CreateBoundingBoxFromTopLeft(Vector2* position, float width, float height)
   bbox.max.y = position->y + height;
 
   return bbox;
+}
+
+float
+Clamp(float value, float minVal, float maxVal)
+{
+  if (value < minVal)
+    return minVal;
+  if (value > maxVal)
+    return maxVal;
+  return value;
 }
 
 Quaternion
