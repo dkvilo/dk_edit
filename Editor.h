@@ -206,6 +206,7 @@ tokenize(const std::string& text)
           isFloat = true;
         pos++;
       }
+      (void*)isFloat;
       tokens.push_back(
         { SyntaxElementType::Number, text.substr(start, pos - start), start });
       continue;
@@ -322,6 +323,20 @@ public:
     scrollOffsetY = 0;
   }
 
+  const std::string& getText() const { return text; }
+
+  void handleCommandPaletteSelection(size_t position)
+  {
+    cursorPosition = position;
+    resetSelection();
+    updateCursorTargetPosition();
+
+    std::vector<WrappedLine> lines = wrapText(text);
+    size_t lineIndex = getLineIndexAtPosition(cursorPosition, lines);
+    scrollOffsetY = lineIndex * lineHeight;
+    scrollOffsetY = std::max(0.0f, std::min(scrollOffsetY, maxScrollOffsetY));
+  }
+
   void resize(uint32_t width, uint32_t height)
   {
     editorWidth = width;
@@ -368,7 +383,7 @@ public:
   inline bool isSupportedLanguage()
   {
     return (bufferExt == "cpp" || bufferExt == "c" || bufferExt == "h" ||
-        bufferExt == "hpp");
+            bufferExt == "hpp");
   }
 
   void formatCodeWithClangFormat()

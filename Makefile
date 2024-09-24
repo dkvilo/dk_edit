@@ -1,5 +1,5 @@
 CXX := g++
-CXXFLAGS := -std=c++17 -O3 -Wall -I./external/include -include pch.h
+CXXFLAGS := -std=c++17 -O3 -Wall -Wno-unused-value -Wno-unused-result -Wno-reorder -I./external/include -include pch.h
 
 PCH := pch.h
 PCH_GCH := pch.h.gch

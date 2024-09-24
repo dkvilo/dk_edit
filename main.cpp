@@ -20,7 +20,7 @@
 #define WINDOW_WIDTH 1080
 #define WINDOW_HEIGHT 720
 
-#define EDITOR_NAME "DEdit"
+#define EDITOR_NAME "dk_edit"
 
 #include "CommandPallete.h"
 
@@ -34,6 +34,8 @@ main(int32_t argc, char* argv[])
     std::cout << "Window Creation Failed\n";
     return -1;
   }
+
+  SDL_SetWindowBordered(window, SDL_FALSE);
 
   WGPUInstanceDescriptor instanceDescriptor = {};
   instanceDescriptor.nextInChain = nullptr;
@@ -127,17 +129,6 @@ main(int32_t argc, char* argv[])
   viewDescriptor.arrayLayerCount = 1;
   viewDescriptor.aspect = WGPUTextureAspect_All;
 
-  WGPUTextureDescriptor multiSampledFrameDesc = {};
-  multiSampledFrameDesc.label = "Multi-sampled texture";
-  multiSampledFrameDesc.size.width = config.width;
-  multiSampledFrameDesc.size.height = config.height;
-  multiSampledFrameDesc.size.depthOrArrayLayers = 1;
-  multiSampledFrameDesc.mipLevelCount = 1;
-  multiSampledFrameDesc.sampleCount = MSAA_NUMBER_OF_SAMPLE;
-  multiSampledFrameDesc.dimension = WGPUTextureDimension_2D;
-  multiSampledFrameDesc.format = config.format;
-  multiSampledFrameDesc.usage = WGPUTextureUsage_RenderAttachment;
-
   bool is_running = true;
   SDL_Event e;
 
@@ -167,6 +158,7 @@ main(int32_t argc, char* argv[])
   float fpsTimer = 0.0f;
 
   UIContext uiContext = {};
+#if 0
   CartesianCoordinateSystem coordinateSystem = {
     .origin = { (float)config.width * 0.5f, (float)config.height * 0.5f },
     .screenSize = { (float)config.width, (float)config.height },
@@ -188,6 +180,7 @@ main(int32_t argc, char* argv[])
   p1 = { { 200, 100 }, false };
   p2 = { { 600, 100 }, false };
   ControlPoint p3 = { { 700, 300 }, false };
+#endif
 
   float graphWidth = 200.0f;
   float graphHeight = 20.0f;
@@ -227,11 +220,23 @@ main(int32_t argc, char* argv[])
   }
 
   CommandPalette commandPalette(batchRenderer, config.width, config.height);
-  commandPalette.onFileSelect = [&](const char* filename) {
-    editor.loadTextFromFile(filename);
-    char buffer[255];
-    sprintf(buffer, "%s | %s", EDITOR_NAME, filename);
-    SDL_SetWindowTitle(window, buffer);
+  commandPalette.onItemSelect = [&](const CommandPalette::Item& item) {
+    switch (commandPalette.getMode()) {
+      case CommandPaletteMode::FileList:
+        editor.loadTextFromFile(item.displayText.c_str());
+        {
+          char buffer[255];
+          sprintf(buffer, "%s | %s", EDITOR_NAME, item.displayText.c_str());
+          SDL_SetWindowTitle(window, buffer);
+        }
+        break;
+      case CommandPaletteMode::CommentList:
+      case CommandPaletteMode::FunctionList:
+        editor.handleCommandPaletteSelection(item.data);
+        break;
+      case CommandPaletteMode::SystemCommand:
+        break;
+    }
   };
 
   while (is_running) {
@@ -278,15 +283,19 @@ main(int32_t argc, char* argv[])
           } break;
 
           case SDL_EVENT_KEY_DOWN: {
+#if 0
             if (e.key.key == SDLK_ESCAPE) {
               is_running = false;
             }
-
-            else if (e.key.key == SDLK_P) {
+            else
+#endif
+            if (e.key.key == SDLK_P) {
               if (ctrlPressed) {
                 commandPalette.show();
+                commandPalette.setEditorText(editor.getText());
               }
             }
+
           } break;
 
           default:
@@ -302,10 +311,12 @@ main(int32_t argc, char* argv[])
                                           &uiContext.Mouse.relative.y);
     uiContext.Mouse.pressed = (mouseState & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0;
 
+#if 0
     HandleMouseDragging(p0, uiContext.Mouse.relative, uiContext.Mouse.pressed);
     HandleMouseDragging(p1, uiContext.Mouse.relative, uiContext.Mouse.pressed);
     HandleMouseDragging(p2, uiContext.Mouse.relative, uiContext.Mouse.pressed);
     HandleMouseDragging(p3, uiContext.Mouse.relative, uiContext.Mouse.pressed);
+#endif
 
     const SDL_bool* keyboardState = SDL_GetKeyboardState(NULL);
     if (keyboardState[SDL_SCANCODE_A]) {
@@ -386,7 +397,6 @@ main(int32_t argc, char* argv[])
 
     char fpsBuffer[64];
     sprintf(fpsBuffer, "FPS: %.0f / %.2f ms", fps, deltaTime * 1000.0f);
-    Vector2 text_size = batchRenderer.MeasureText(fpsBuffer, 30.0f);
     Vector2 fps_text_position = { 10.0f - 2.0f, (config.height) - 2.0f };
     batchRenderer.DrawText(
       fpsBuffer, fps_text_position, 30.0f, BLACK, LAYER_TEXT);
@@ -398,43 +408,43 @@ main(int32_t argc, char* argv[])
 
 #if 0
     {
-    float dx = uiContext.Mouse.relative.x - vectorStart.x;
-    float dy = uiContext.Mouse.relative.y - vectorStart.y;
-    float newAngle = atan2f(dy, dx);
+      float dx = uiContext.Mouse.relative.x - vectorStart.x;
+      float dy = uiContext.Mouse.relative.y - vectorStart.y;
+      float newAngle = atan2f(dy, dx);
 
-    vectorToVisualize.x = vectorLength * cos(newAngle);
-    vectorToVisualize.y = vectorLength * sin(newAngle);
+      vectorToVisualize.x = vectorLength * cos(newAngle);
+      vectorToVisualize.y = vectorLength * sin(newAngle);
 
-    DrawCartesianAxes(batchRenderer, coordinateSystem);
-    DrawCartesianGrid(batchRenderer, coordinateSystem);
-    DrawCartesianLabels(batchRenderer, coordinateSystem);
-    Visualize2DVector(
-      batchRenderer, vectorStart, vectorToVisualize, 3.0f, BLUE);
+      DrawCartesianAxes(batchRenderer, coordinateSystem);
+      DrawCartesianGrid(batchRenderer, coordinateSystem);
+      DrawCartesianLabels(batchRenderer, coordinateSystem);
+      Visualize2DVector(
+        batchRenderer, vectorStart, vectorToVisualize, 3.0f, BLUE);
 
-    // control points
-    DrawControlPoint(batchRenderer, p0, 10.0f, RED);
-    DrawControlPoint(batchRenderer, p1, 10.0f, GREEN);
-    DrawControlPoint(batchRenderer, p2, 10.0f, YELLOW);
-    DrawControlPoint(batchRenderer, p3, 10.0f, PURPLE);
+      // control points
+      DrawControlPoint(batchRenderer, p0, 10.0f, RED);
+      DrawControlPoint(batchRenderer, p1, 10.0f, GREEN);
+      DrawControlPoint(batchRenderer, p2, 10.0f, YELLOW);
+      DrawControlPoint(batchRenderer, p3, 10.0f, PURPLE);
 
-    DrawQuadraticBezierControlHandles(
-      batchRenderer, p0.position, p1.position, p2.position, YELLOW, 1.0f);
-    DrawCubicBezierControlHandles(batchRenderer,
-                                  p0.position,
-                                  p1.position,
-                                  p2.position,
-                                  p3.position,
-                                  YELLOW,
-                                  1.0f);
-    DrawQuadraticBezier(
-      batchRenderer, p0.position, p1.position, p2.position, GREEN, 5.0f);
-    DrawCubicBezier(batchRenderer,
-                    p0.position,
-                    p1.position,
-                    p2.position,
-                    p3.position,
-                    BLUE,
-                    5.0f);
+      DrawQuadraticBezierControlHandles(
+        batchRenderer, p0.position, p1.position, p2.position, YELLOW, 1.0f);
+      DrawCubicBezierControlHandles(batchRenderer,
+                                    p0.position,
+                                    p1.position,
+                                    p2.position,
+                                    p3.position,
+                                    YELLOW,
+                                    1.0f);
+      DrawQuadraticBezier(
+        batchRenderer, p0.position, p1.position, p2.position, GREEN, 5.0f);
+      DrawCubicBezier(batchRenderer,
+                      p0.position,
+                      p1.position,
+                      p2.position,
+                      p3.position,
+                      BLUE,
+                      5.0f);
 
       static Vector4 color = RED;
       BoundingBox playerBB =
@@ -468,8 +478,7 @@ main(int32_t argc, char* argv[])
       batchRenderer.AddQuad(
         position, 50, 50, GREEN, angle, ORIGIN_CENTER, LAYER_GAME_OBJECT);
       batchRenderer.AddQuad(
-        { 600, 450 }, 150, 75, BLUE, -angle, ORIGIN_CENTER,
-        LAYER_BACKGROUND);
+        { 600, 450 }, 150, 75, BLUE, -angle, ORIGIN_CENTER, LAYER_BACKGROUND);
 
       batchRenderer.AddLine({ 100.0f, 300.0f },
                             { 700.0f, 300.0f },

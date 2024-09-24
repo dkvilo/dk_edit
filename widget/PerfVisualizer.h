@@ -6,10 +6,10 @@ class PerfVisualizer
 {
 public:
   PerfVisualizer(BatchRenderer& renderer,
-                Vector2 origin,
-                float width,
-                float height,
-                int maxSegments)
+                 Vector2 origin,
+                 float width,
+                 float height,
+                 int maxSegments)
     : renderer(renderer)
     , origin(origin)
     , width(width)
@@ -20,11 +20,7 @@ public:
     fpsHistory.reserve(maxSegments);
   }
 
-
-  void Resize(uint32_t pWidth, uint32_t pHeight)
-  {
-    origin.y = pHeight;
-  }
+  void Resize(uint32_t pWidth, uint32_t pHeight) { origin.y = pHeight; }
 
   void AddFPS(float fps)
   {
@@ -64,7 +60,7 @@ public:
     float segmentWidth = width / (float)(maxSegments - 1);
 
     float bar_width = 10.0f;
-    float bar_height  = height;
+    float bar_height = height;
     float pad = 5.0f;
 
     for (size_t i = 0; i < fpsHistory.size(); ++i) {
@@ -89,7 +85,7 @@ private:
   Vector2 origin;
   float width;
   float height;
-  int maxSegments;
+  size_t maxSegments;
   float dynamicMaxFPS;
   std::vector<FPSFrame> fpsHistory;
 };
