@@ -6,7 +6,8 @@ struct UIContext
 {
   void* activeElement;
   int32_t activeLayer;
-  struct {
+  struct
+  {
     Vector2 relative;
     Vector2 global;
     bool pressed;
@@ -21,6 +22,9 @@ struct UIButton
   bool hovered;
   bool clicked;
 };
+
+struct UIColor
+{};
 
 struct UISlider
 {

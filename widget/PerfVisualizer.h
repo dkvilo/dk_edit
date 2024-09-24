@@ -20,6 +20,12 @@ public:
     fpsHistory.reserve(maxSegments);
   }
 
+
+  void Resize(uint32_t pWidth, uint32_t pHeight)
+  {
+    origin.y = pHeight;
+  }
+
   void AddFPS(float fps)
   {
     float clampedFPS = Clamp(fps, 0.0f, 120.0f);
@@ -58,7 +64,7 @@ public:
     float segmentWidth = width / (float)(maxSegments - 1);
 
     float bar_width = 10.0f;
-    float bar_height = 50.0f;
+    float bar_height  = height;
     float pad = 5.0f;
 
     for (size_t i = 0; i < fpsHistory.size(); ++i) {

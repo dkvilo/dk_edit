@@ -67,7 +67,7 @@ BatchRenderer::Initialize()
   CreatePipeline();
   CreateBuffers();
   LoadTexture("res/spritesheet.png", 0);
-  LoadFont("res/Alegreya-Regular.ttf"); // this will be bound to 1
+  LoadFont("res/JetBrainsMono-Regular.ttf"); // this will be bound to 1
   CreateBindGroup();
 }
 
@@ -273,8 +273,8 @@ BatchRenderer::CreatePipeline()
 void
 BatchRenderer::CreateBuffers()
 {
-  const size_t maxVertices = 1000 * 4;
-  const size_t maxIndices = 1000 * 6;
+  const size_t maxVertices = MAX_QUADS * 4;
+  const size_t maxIndices = MAX_QUADS * 6;
 
   // vbo
   WGPUBufferDescriptor vertexBufferDesc = {};
@@ -418,7 +418,7 @@ BatchRenderer::LoadFont(const char* fontFilePath)
   fseek(fontFile, 0, SEEK_SET);
 
   fontData.fontBuffer = new unsigned char[fontSize];
-  fread(fontData.fontBuffer, 1, fontSize, fontFile);
+  (void*)fread(fontData.fontBuffer, 1, fontSize, fontFile);
   fclose(fontFile);
 
   stbtt_InitFont(&fontData.fontInfo,
@@ -575,7 +575,7 @@ BatchRenderer::AddQuad(Vector2 position,
                        Vector2 origin,
                        int32_t drawOrder = 0)
 {
-  if (quads.size() >= 1000)
+  if (quads.size() >= MAX_QUADS)
     return;
 
   Quad quad;
@@ -632,7 +632,7 @@ BatchRenderer::AddLine(Vector2 start,
                        Vector2 origin = ORIGIN_CENTER,
                        int32_t drawOrder = 0)
 {
-  if (quads.size() >= 1000)
+  if (quads.size() >= MAX_QUADS)
     return;
 
   Quad quad;
@@ -685,7 +685,7 @@ BatchRenderer::AddTexturedQuad(Vector2 position,
                                Vector2 origin = ORIGIN_CENTER,
                                int32_t drawOrder = 0)
 {
-  if (quads.size() >= 1000)
+  if (quads.size() >= MAX_QUADS)
     return;
 
   Quad quad;

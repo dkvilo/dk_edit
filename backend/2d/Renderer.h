@@ -38,7 +38,10 @@
 #define INDIGO { 0.29f, 0.0f, 0.51f, 1.0f }
 #define TURQUOISE { 0.25f, 0.88f, 0.82f, 1.0f }
 
-#define ORIGIN_CENTER { 0.5f, 0.5f }
+#define ORIGIN_TOP_LEFT   { 0.0f, 0.0f }
+#define ORIGIN_CENTER     { 0.5f, 0.5f }
+#define ORIGIN_BOTTOM_RIGHT { 1.0f, 1.0f }
+#define ORIGIN_BOTTOM_LEFT { -1.0f, 1.0f }
 
 enum Layer
 {
@@ -164,6 +167,9 @@ private:
 
   std::vector<Quad> quads;
 
+  const uint32_t MAX_QUADS = 10000;
+
+public:
   struct Font
   {
     stbtt_fontinfo fontInfo;

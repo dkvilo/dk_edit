@@ -19,7 +19,7 @@ struct CartesianCoordinateSystem
   Vector2 origin;
   Vector2 screenSize;
   // scale of the grid (e.g., pixels per unit)
-  float scale;  
+  float scale;
   Vector4 axisColor;
   Vector4 gridColor;
   Vector4 textColor;

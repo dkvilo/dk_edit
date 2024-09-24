@@ -33,8 +33,6 @@ typedef struct Matrix4
   float elements[16];
 } Matrix4;
 
-
-
 typedef struct Quaternion
 {
   float x;
@@ -186,6 +184,12 @@ vector4_cross(Vector4 left, Vector4 right);
 
 Vector2
 vector2_lerp(Vector2 start, Vector2 end, float t);
+
+float
+vector2_distance(Vector2 a, Vector2 b);
+
+float
+lerp(float a, float b, float t);
 
 Vector3
 vector3_lerp(Vector3 start, Vector3 end, float t);

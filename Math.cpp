@@ -537,10 +537,22 @@ vector4_project(Vector4 vector, Vector4 normal)
   return vector4_scale(normal, vector4_dot(vector, normal));
 }
 
+float
+lerp(float a, float b, float t)
+{
+  return a + (b - a) * t;
+}
+
 Vector2
 vector2_lerp(Vector2 start, Vector2 end, float t)
 {
   return vector2_add(start, vector2_scale(vector2_subtract(end, start), t));
+}
+
+float
+vector2_distance(Vector2 a, Vector2 b)
+{
+  return sqrtf((b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y));
 }
 
 Vector3

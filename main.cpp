@@ -4,26 +4,31 @@
  *
  * $file main.cpp
  */
-#include "SDL3/SDL.h"
-#include "SDL3/SDL_events.h"
-#include "webgpu/webgpu.h"
-#include "wgpu/wgpu.h"
-#include <iostream>
+
+#include "pch.h"
 
 #include "Math.h"
 #include "backend/2d/Renderer.h"
 #include "backend/common.h"
 
+#include "Editor.h"
 #include "Imui.h"
 #include "Platform.h"
 #include "PlayMath.h"
 #include "widget/PerfVisualizer.h"
 
+#define WINDOW_WIDTH 1080
+#define WINDOW_HEIGHT 720
+
+#define EDITOR_NAME "DEdit"
+
+#include "CommandPallete.h"
+
 int
 main(int32_t argc, char* argv[])
 {
-  SDL_Window* window =
-    SDL_CreateWindow("A Window", 800, 600, SDL_WINDOW_RESIZABLE);
+  SDL_Window* window = SDL_CreateWindow(
+    EDITOR_NAME, WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_RESIZABLE);
 
   if (!window) {
     std::cout << "Window Creation Failed\n";
@@ -90,7 +95,6 @@ main(int32_t argc, char* argv[])
   WGPUQueue commandQueue = wgpuDeviceGetQueue(device);
 
   // surface configuration
-
   WGPUSurfaceCapabilities capabilities;
   wgpuSurfaceGetCapabilities(surface, adapter, &capabilities);
 
@@ -105,8 +109,8 @@ main(int32_t argc, char* argv[])
   config.device = device;
   config.presentMode = WGPUPresentMode_Fifo;
   config.alphaMode = WGPUCompositeAlphaMode_Opaque;
-  config.width = 800;
-  config.height = 600;
+  config.width = WINDOW_WIDTH;
+  config.height = WINDOW_HEIGHT;
   wgpuSurfaceConfigure(surface, &config);
 
   wgpuSurfaceCapabilitiesFreeMembers(capabilities);
@@ -163,9 +167,8 @@ main(int32_t argc, char* argv[])
   float fpsTimer = 0.0f;
 
   UIContext uiContext = {};
-
   CartesianCoordinateSystem coordinateSystem = {
-    .origin = { (float)config.width*0.5f, (float)config.height * 0.5f },
+    .origin = { (float)config.width * 0.5f, (float)config.height * 0.5f },
     .screenSize = { (float)config.width, (float)config.height },
     .scale = 50.0f, // pixels per unit
     .axisColor = BLACK,
@@ -174,25 +177,23 @@ main(int32_t argc, char* argv[])
   };
 
   Vector2 vectorStart = { 400.0f, 300.0f };
-  float vectorLength = 50.0f; // unit vector
+  float vectorLength = 50.0f;
   Vector2 vectorToVisualize = { vectorLength, 0.0f };
 
-  // points for quadratic and cubic Bezier curves
+  ControlPoint p0 = { { 100, 500 }, false };
+  ControlPoint p1 = { { 400, 100 }, false };
+  ControlPoint p2 = { { 700, 500 }, false };
 
-  ControlPoint p0 = { { 100, 500 }, false }; // start
-  ControlPoint p1 = { { 400, 100 }, false }; // control point
-  ControlPoint p2 = { { 700, 500 }, false }; // end point
-
-  // control points for a cubic Bezier curve
-  p0 = { { 400, 300 }, false };              // start
-  p1 = { { 200, 100 }, false };              // point 1
-  p2 = { { 600, 100 }, false };              // point 2
-  ControlPoint p3 = { { 700, 300 }, false }; // end point
+  p0 = { { 400, 300 }, false };
+  p1 = { { 200, 100 }, false };
+  p2 = { { 600, 100 }, false };
+  ControlPoint p3 = { { 700, 300 }, false };
 
   float graphWidth = 200.0f;
-  float graphHeight = 100.0f;
+  float graphHeight = 20.0f;
   int maxSegments = 30;
-  Vector2 graphOrigin = { 10.0f, (graphHeight * 0.5f) - 10.0f };
+  Vector2 graphOrigin = { 10.0f,
+                          config.height - ((graphHeight * 0.5f) - 10.0f) };
 
   PerfVisualizer perfVisualizer(
     batchRenderer, graphOrigin, graphWidth, graphHeight, maxSegments);
@@ -200,8 +201,40 @@ main(int32_t argc, char* argv[])
   Vector4 lineColor = { 0.0f, 1.0f, 0.0f, 1.0f };
   Vector4 spikeColor = { 1.0f, 0.0f, 0.0f, 1.0f };
 
-  while (is_running) {
+  Vector2 editor_position = { 10.0f, 50.0f };
+  float fontSize = 23.0f;
+  Vector4 textColor = { 1.0f, 1.0f, 1.0f, 1.0f };
+  Vector4 cursorColor = LIME;
+  Vector4 selectionColor = { 0.0f, 0.5f, 1.0f, 0.5f };
+  Vector4 lineNumberColor = { 0.7f, 0.7f, 0.7f, 1.0f };
 
+  SimpleTextEditor editor(batchRenderer,
+                          editor_position,
+                          fontSize,
+                          textColor,
+                          cursorColor,
+                          selectionColor,
+                          lineNumberColor);
+
+  SDL_StartTextInput(window);
+
+  if (argc > 1) {
+    const char* filename = argv[1];
+    editor.loadTextFromFile(filename);
+    char buffer[255];
+    sprintf(buffer, "%s | %s", EDITOR_NAME, filename);
+    SDL_SetWindowTitle(window, buffer);
+  }
+
+  CommandPalette commandPalette(batchRenderer, config.width, config.height);
+  commandPalette.onFileSelect = [&](const char* filename) {
+    editor.loadTextFromFile(filename);
+    char buffer[255];
+    sprintf(buffer, "%s | %s", EDITOR_NAME, filename);
+    SDL_SetWindowTitle(window, buffer);
+  };
+
+  while (is_running) {
     Uint64 currentTime = SDL_GetPerformanceCounter();
     deltaTime = (float)(currentTime - lastTime) / SDL_GetPerformanceFrequency();
     lastTime = currentTime;
@@ -209,49 +242,64 @@ main(int32_t argc, char* argv[])
     fpsTimer += deltaTime;
     frameCount++;
 
-    if (fpsTimer >= 1.0f) { // every second
+    if (fpsTimer >= 1.0f) {
       fps = frameCount / fpsTimer;
       frameCount = 0;
-      fpsTimer -= 1.0f; // subtract 1 second to handle any extra time
+      fpsTimer -= 1.0f;
     }
 
     while (SDL_PollEvent(&e)) {
-      switch (e.type) {
-        case SDL_EVENT_QUIT:
-          is_running = false;
-          break;
+      bool ctrlPressed = (SDL_GetModState() & SDL_KMOD_CTRL) != 0;
 
-        case SDL_EVENT_WINDOW_RESIZED: {
-          int32_t newWidth, newHeight;
-          SDL_GetWindowSize(window, &newWidth, &newHeight);
+      if (commandPalette.isVisible()) {
+        commandPalette.handleInput(e);
+      } else {
+        editor.handleInput(e);
 
-          batchRenderer.windowWidth = newWidth;
-          batchRenderer.windowHeight = newHeight;
-
-          config.width = newWidth;
-          config.height = newHeight;
-
-          wgpuSurfaceConfigure(surface, &config);
-        } break;
-
-        case SDL_EVENT_KEY_DOWN: {
-          if (e.key.key == SDLK_ESCAPE) {
+        switch (e.type) {
+          case SDL_EVENT_QUIT:
             is_running = false;
-          }
-        } break;
+            break;
 
-        default:
-          break;
+          case SDL_EVENT_WINDOW_RESIZED: {
+            int32_t newWidth, newHeight;
+            SDL_GetWindowSize(window, &newWidth, &newHeight);
+
+            batchRenderer.windowWidth = newWidth;
+            batchRenderer.windowHeight = newHeight;
+
+            config.width = newWidth;
+            config.height = newHeight;
+
+            wgpuSurfaceConfigure(surface, &config);
+            editor.resize(config.width, config.height);
+            perfVisualizer.Resize(config.width, config.height);
+            commandPalette.resize(config.width, config.height);
+          } break;
+
+          case SDL_EVENT_KEY_DOWN: {
+            if (e.key.key == SDLK_ESCAPE) {
+              is_running = false;
+            }
+
+            else if (e.key.key == SDLK_P) {
+              if (ctrlPressed) {
+                commandPalette.show();
+              }
+            }
+          } break;
+
+          default:
+            break;
+        }
       }
     }
 
     // UPDATE -------------------------------------------------
-
     SDL_GetGlobalMouseState(&uiContext.Mouse.global.x,
                             &uiContext.Mouse.global.y);
     Uint32 mouseState = SDL_GetMouseState(&uiContext.Mouse.relative.x,
                                           &uiContext.Mouse.relative.y);
-
     uiContext.Mouse.pressed = (mouseState & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0;
 
     HandleMouseDragging(p0, uiContext.Mouse.relative, uiContext.Mouse.pressed);
@@ -283,6 +331,8 @@ main(int32_t argc, char* argv[])
       position.y = batchRenderer.windowHeight;
 
     position = vector2_lerp(position, uiContext.Mouse.relative, deltaTime);
+
+    editor.update(deltaTime);
 
     // RENDER -----------------------------------------------
     WGPUSurfaceTexture surfaceTexture;
@@ -331,6 +381,23 @@ main(int32_t argc, char* argv[])
     WGPURenderPassEncoder passEncoder =
       wgpuCommandEncoderBeginRenderPass(encoder, &renderPassDesc);
 
+    perfVisualizer.AddFPS(1.0f / deltaTime);
+    perfVisualizer.Draw(lineColor, spikeColor);
+
+    char fpsBuffer[64];
+    sprintf(fpsBuffer, "FPS: %.0f / %.2f ms", fps, deltaTime * 1000.0f);
+    Vector2 text_size = batchRenderer.MeasureText(fpsBuffer, 30.0f);
+    Vector2 fps_text_position = { 10.0f - 2.0f, (config.height) - 2.0f };
+    batchRenderer.DrawText(
+      fpsBuffer, fps_text_position, 30.0f, BLACK, LAYER_TEXT);
+
+    fps_text_position.x += 2.0f;
+    fps_text_position.y += 2.0f;
+    batchRenderer.DrawText(
+      fpsBuffer, fps_text_position, 30.0f, WHITE, LAYER_TEXT);
+
+#if 0
+    {
     float dx = uiContext.Mouse.relative.x - vectorStart.x;
     float dy = uiContext.Mouse.relative.y - vectorStart.y;
     float newAngle = atan2f(dy, dx);
@@ -359,7 +426,6 @@ main(int32_t argc, char* argv[])
                                   p3.position,
                                   YELLOW,
                                   1.0f);
-
     DrawQuadraticBezier(
       batchRenderer, p0.position, p1.position, p2.position, GREEN, 5.0f);
     DrawCubicBezier(batchRenderer,
@@ -370,21 +436,6 @@ main(int32_t argc, char* argv[])
                     BLUE,
                     5.0f);
 
-    float currentFPS = (deltaTime > 0.0f) ? (1.0f / deltaTime) : 0.0f;
-
-    perfVisualizer.AddFPS(1.0f / deltaTime);
-    perfVisualizer.Draw(lineColor, spikeColor);
-
-    char fpsBuffer[64];
-    sprintf(fpsBuffer, "FPS: %.0f / %.2f ms", fps, deltaTime * 1000.0f);
-    Vector2 text_size = batchRenderer.MeasureText(fpsBuffer, 30.0f);
-    Vector2 fps_text_position = { 10.0f - 2.0f, (graphOrigin.y) - 2.0f };
-    batchRenderer.DrawText(fpsBuffer, fps_text_position, 30.0f, BLACK, LAYER_TEXT);
-    fps_text_position.x += 2.0f;
-    fps_text_position.y += 2.0f;
-    batchRenderer.DrawText(fpsBuffer, fps_text_position, 30.0f, WHITE, LAYER_TEXT);
-
-    {
       static Vector4 color = RED;
       BoundingBox playerBB =
         CreateBoundingBoxFromCenter(&position, 100.0f, 100.0f);
@@ -403,7 +454,8 @@ main(int32_t argc, char* argv[])
         rotationAngle -= 2.0f * M_PI;
       }
 
-      batchRenderer.AddQuad(position, 100, 100, color, 0.0f, ORIGIN_CENTER, LAYER_GAME_OBJECT);
+      batchRenderer.AddQuad(
+        position, 100, 100, color, 0.0f, ORIGIN_CENTER, LAYER_GAME_OBJECT);
 
       float angle =
         atan2f(uiContext.Mouse.relative.y, uiContext.Mouse.relative.x);
@@ -416,7 +468,8 @@ main(int32_t argc, char* argv[])
       batchRenderer.AddQuad(
         position, 50, 50, GREEN, angle, ORIGIN_CENTER, LAYER_GAME_OBJECT);
       batchRenderer.AddQuad(
-        { 600, 450 }, 150, 75, BLUE, -angle, ORIGIN_CENTER, LAYER_BACKGROUND);
+        { 600, 450 }, 150, 75, BLUE, -angle, ORIGIN_CENTER,
+        LAYER_BACKGROUND);
 
       batchRenderer.AddLine({ 100.0f, 300.0f },
                             { 700.0f, 300.0f },
@@ -452,7 +505,8 @@ main(int32_t argc, char* argv[])
                                     ORIGIN_CENTER,
                                     LAYER_BACKGROUND);
 
-      DrawBoundingBox(batchRenderer, playerBB, YELLOW, angle, LAYER_GAME_OBJECT);
+      DrawBoundingBox(
+        batchRenderer, playerBB, YELLOW, angle, LAYER_GAME_OBJECT);
 
       const char* hello = "Hello, WebGPU!";
       text_size = batchRenderer.MeasureText(fpsBuffer, 90.0f);
@@ -469,14 +523,24 @@ main(int32_t argc, char* argv[])
                              LAYER_TEXT);
 
       char debug_text[64];
-      sprintf(debug_text, "(%.0f,%.0f)", uiContext.Mouse.relative.x, uiContext.Mouse.relative.y);
+      sprintf(debug_text,
+              "(%.0f,%.0f)",
+              uiContext.Mouse.relative.x,
+              uiContext.Mouse.relative.y);
       batchRenderer.DrawText(debug_text,
                              { uiContext.Mouse.relative.x + 2.0f,
                                uiContext.Mouse.relative.y + 2.0f },
                              30.0f,
                              BLACK,
                              LAYER_TEXT);
-      batchRenderer.DrawText(debug_text, uiContext.Mouse.relative, 30.0f, WHITE, LAYER_TEXT);
+      batchRenderer.DrawText(
+        debug_text, uiContext.Mouse.relative, 30.0f, WHITE, LAYER_TEXT);
+    }
+#endif
+
+    editor.render(batchRenderer);
+    if (commandPalette.isVisible()) {
+      commandPalette.render();
     }
 
     batchRenderer.Render(passEncoder);
@@ -486,7 +550,8 @@ main(int32_t argc, char* argv[])
 
     // submit to the command buffer
     WGPUCommandBufferDescriptor cmdBufferDesc = {};
-    WGPUCommandBuffer commandBuffer = wgpuCommandEncoderFinish(encoder, &cmdBufferDesc);
+    WGPUCommandBuffer commandBuffer =
+      wgpuCommandEncoderFinish(encoder, &cmdBufferDesc);
     wgpuQueueSubmit(commandQueue, 1, &commandBuffer);
 
     // present the final frame
