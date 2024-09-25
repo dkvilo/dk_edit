@@ -37,6 +37,8 @@ This version of editor renderer is implemented on top of `WGPU`, there is also `
 | `Ctrl + M`          | Jump to the middle of the line                   |
 | `Fn + [`            | Jump to the start of the line                    |
 | `Fn + ]`            | Jump to the end of the line                      |
+| `Tab`               | Insert tab                                       |
+| `Shift + Tab`       | Remove tab                                       |
 
 
 ## Command Palette
@@ -47,6 +49,7 @@ This version of editor renderer is implemented on top of `WGPU`, there is also `
 
 '/' system command
 
+'?' search
 
 to use build command you will need to create project_config.json file that will have following command
 
@@ -68,3 +71,6 @@ other configuration options
   }
 }
 ```
+
+
+
