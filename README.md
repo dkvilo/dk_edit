@@ -1,4 +1,8 @@
-# dk_edit
+<div align="center">
+  <img src="https://raw.githubusercontent.com/dkvilo/dk_edit/refs/heads/master/res/icon.png" width="200" />
+</div>
+<br />
+
 
 This is my personal text editor, which I use to build pretty much everything. The editor is tailored to my personal needs, so it's needless to say that **most** of the features are opinionated.
 
