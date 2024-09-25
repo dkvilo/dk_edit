@@ -12,6 +12,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string>
+#include <sys/wait.h>
+#include <unistd.h>
 #include <unordered_set>
 
 #include "nlohmann/json.hpp"
@@ -367,11 +369,19 @@ public:
     if (projectConfig.contains("build_command")) {
       std::string buildCommand = projectConfig["build_command"];
       std::cout << "Executing build command: " << buildCommand << std::endl;
-      int result = std::system(buildCommand.c_str());
-      if (result == 0) {
-        std::cout << "Build completed successfully." << std::endl;
+
+      pid_t pid = fork();
+      if (pid == 0) {
+        char* args[] = {
+          (char*)"/bin/sh", (char*)"-c", (char*)buildCommand.c_str(), nullptr
+        };
+        execvp(args[0], args);
+        std::cerr << "Error: Failed to execute build command" << std::endl;
+        std::exit(1);
+      } else if (pid > 0) {
+        std::cout << "Build process started (PID: " << pid << ")." << std::endl;
       } else {
-        std::cerr << "Build failed with error code: " << result << std::endl;
+        std::cerr << "Error: Failed to fork process" << std::endl;
       }
     } else {
       std::cerr
@@ -404,11 +414,27 @@ public:
     outFile.close();
 
     std::string tempOutputFile = "temp_program_out.c";
-    std::string clangFormatCommand =
-      "clang-format " + tempInputFile + " > " + tempOutputFile;
 
-    clangFormatCommand += " --style=Mozilla";
-    int result = std::system(clangFormatCommand.c_str());
+    std::string clangFormatCommand;
+
+    if (projectConfig.contains("formatter")) {
+      if (projectConfig["formatter"].contains("bin")) {
+        std::string bin = projectConfig["formatter"]["bin"];
+        clangFormatCommand = bin + " " + tempInputFile + " > " + tempOutputFile;
+      }
+
+      if (projectConfig["formatter"].contains("style")) {
+        std::string style = projectConfig["formatter"]["style"];
+        clangFormatCommand += " --style=" + style;
+      }
+
+      std::cout << ": " << clangFormatCommand << "\n";
+    } else {
+      clangFormatCommand = "clang-format " + tempInputFile + " > " +
+                           tempOutputFile + " --style=Mozilla";
+    }
+
+    int32_t result = std::system(clangFormatCommand.c_str());
     if (result != 0) {
       std::cerr << "Error: Clang-format command failed.\n";
       std::remove(tempInputFile.c_str());
@@ -625,7 +651,12 @@ public:
           break;
         case SDLK_S:
           if (ctrlPressed) {
-            formatCodeWithClangFormat();
+            if (projectConfig.contains("format_on_save")) {
+              bool enabled = projectConfig["format_on_save"];
+              if (enabled) {
+                formatCodeWithClangFormat();
+              }
+            }
             saveBufferToFile();
           }
           break;
@@ -722,7 +753,10 @@ public:
     }
   }
 
-  bool hasSelection() const { return selectionStart != selectionEnd; }
+  bool hasSelection() const
+  {
+    return selectionStart != selectionEnd;
+  }
 
   void copySelectedText()
   {
