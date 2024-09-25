@@ -53,6 +53,7 @@ public:
   std::function<void(const std::string& command)> onCommandSelect;
   void executeSystemCommand(const std::string& command);
   void setWorkDir(std::string pWorkDir);
+  std::string getWorkDir() const;
 
 private:
   void updateFileList();

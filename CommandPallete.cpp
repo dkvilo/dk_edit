@@ -27,6 +27,12 @@ CommandPalette::toggle()
   }
 }
 
+std::string
+CommandPalette::getWorkDir() const
+{
+  return m_workDir;
+}
+
 // NOTE this is my note
 void
 CommandPalette::resize(uint32_t pWidth, uint32_t pHeight)

@@ -278,11 +278,13 @@ private:
   std::vector<SyntaxToken> tokens;
 
   nlohmann::json projectConfig;
-  std::string projectConfigPath = "project_config.json";
 
   std::stack<std::string> undoStack;
   std::stack<std::string> redoStack;
   const size_t MAX_STACK_SIZE = 100;
+
+public:
+  std::string projectConfigPath;
 
 public:
   SimpleTextEditor(BatchRenderer& renderer,
@@ -309,7 +311,6 @@ public:
     fontInfo = &renderer.fontData.fontInfo;
     recalculateFontMetrics();
     lineNumberWidth = measureTextWidth("000") + 20.0f;
-    loadProjectConfig();
     editorWidth = renderer.windowWidth;
     editorHeight = renderer.windowHeight - 50;
 
@@ -352,7 +353,8 @@ public:
     if (configFile.is_open()) {
       try {
         configFile >> projectConfig;
-        std::cout << "Project configuration loaded successfully." << std::endl;
+        std::cout << "Project configuration loaded successfully. "
+                  << projectConfigPath << std::endl;
       } catch (nlohmann::json::parse_error& e) {
         std::cerr << "Error parsing project configuration: " << e.what()
                   << std::endl;
@@ -360,7 +362,7 @@ public:
       configFile.close();
     } else {
       std::cerr << "Error: Unable to open project configuration file."
-                << std::endl;
+                << projectConfigPath << std::endl;
     }
   }
 
@@ -370,8 +372,20 @@ public:
       std::string buildCommand = projectConfig["build_command"];
       std::cout << "Executing build command: " << buildCommand << std::endl;
 
+      std::filesystem::path configDir =
+        std::filesystem::path(projectConfigPath).parent_path();
+
       pid_t pid = fork();
       if (pid == 0) {
+
+        if (!configDir.empty()) {
+          if (chdir(configDir.c_str()) != 0) {
+            std::cerr << "Error: Failed to change directory to " << configDir
+                      << std::endl;
+            std::exit(1);
+          }
+        }
+
         char* args[] = {
           (char*)"/bin/sh", (char*)"-c", (char*)buildCommand.c_str(), nullptr
         };
@@ -379,7 +393,7 @@ public:
         std::cerr << "Error: Failed to execute build command" << std::endl;
         std::exit(1);
       } else if (pid > 0) {
-        std::cout << "Build process started (PID: " << pid << ")." << std::endl;
+        std::cout << "Build process started (PID: " << pid << ")" << std::endl;
       } else {
         std::cerr << "Error: Failed to fork process" << std::endl;
       }
@@ -753,10 +767,7 @@ public:
     }
   }
 
-  bool hasSelection() const
-  {
-    return selectionStart != selectionEnd;
-  }
+  bool hasSelection() const { return selectionStart != selectionEnd; }
 
   void copySelectedText()
   {

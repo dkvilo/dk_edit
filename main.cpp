@@ -214,6 +214,9 @@ main(int32_t argc, char* argv[])
                           selectionColor,
                           lineNumberColor);
 
+  editor.projectConfigPath = "project_config.json";
+  editor.loadProjectConfig();
+
   SDL_StartTextInput(window);
 
   if (argc > 1) {
@@ -259,6 +262,7 @@ main(int32_t argc, char* argv[])
                 << "\n";
       editor.saveBufferToFile();
     } else if (command == "/r") {
+      editor.projectConfigPath = commandPalette.getWorkDir() + "/project_config.json";
       editor.loadProjectConfig();
     } else if (command == "/fmt") {
       editor.formatCodeWithClangFormat();
