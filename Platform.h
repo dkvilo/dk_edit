@@ -5,6 +5,5 @@
 #include "webgpu/webgpu.h"
 #include "wgpu/wgpu.h"
 
-// note (David): this currently working only for X11.
 WGPUSurface
 SDL_GetWGPUSurface(WGPUInstance instance, SDL_Window* window);
