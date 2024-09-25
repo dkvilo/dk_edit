@@ -13,35 +13,3 @@ struct UIContext
     bool pressed;
   } Mouse;
 };
-
-struct UIButton
-{
-  Vector2 position;
-  Vector2 size;
-  const char* label;
-  bool hovered;
-  bool clicked;
-};
-
-struct UIColor
-{};
-
-struct UISlider
-{
-  Vector2 position;
-  float width;
-  float minValue;
-  float maxValue;
-  float* value;
-  bool hovered;
-};
-
-struct UIDropdown
-{
-  Vector2 position;
-  Vector2 size;
-  char* options;
-  int32_t optionCount;
-  int32_t selectedOption;
-  bool open;
-};
