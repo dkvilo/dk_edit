@@ -1,5 +1,5 @@
-#include "Renderer.h"
 #include "../common.h"
+#include "Renderer.h"
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h"
@@ -164,7 +164,7 @@ BatchRenderer::CreatePipeline()
   attributes[5] = { WGPUVertexFormat_Float32x2,
                     offsetof(Vertex, translation),
                     5 };
-
+#if 0
   std::cout << "sizeof(Vertex): " << sizeof(Vertex) << std::endl;
   std::cout << "offsetof(position): " << offsetof(Vertex, position)
             << std::endl;
@@ -177,6 +177,7 @@ BatchRenderer::CreatePipeline()
             << std::endl;
   std::cout << "offsetof(translation): " << offsetof(Vertex, translation)
             << std::endl;
+#endif
 
   // vertex buffer layout
   WGPUVertexBufferLayout vertexBufferLayout = {};
@@ -789,7 +790,9 @@ BatchRenderer::MeasureText(const char* text, float fontSize)
   float posY = fontSize;
 
   float maxWidth = 0.0f;
-  float scale = fontSize / 90.0f; // move backed font size somewhere else
+  //  float scale = fontSize / 90.0f; // move backed font size somewhere else
+
+  float scale = stbtt_ScaleForPixelHeight(&fontData.fontInfo, fontSize);
 
   for (const char* p = text; *p; ++p) {
     if (*p == '\n') {
@@ -816,7 +819,19 @@ BatchRenderer::MeasureText(const char* text, float fontSize)
     }
   }
 
-  return Vector2{ maxWidth, posY };
+  float totalWidth = 0;
+  // float scale = stbtt_ScaleForPixelHeight(&fontData.fontInfo, fontSize);
+
+  for (size_t i = 0; i < strlen(text); ++i) {
+    char c = text[i];
+    int32_t advance, lsb;
+    stbtt_GetCodepointHMetrics(&fontData.fontInfo, c, &advance, &lsb);
+    totalWidth += advance * scale;
+  }
+
+  //  return totalWidth;
+
+  return Vector2{ totalWidth, posY };
 }
 
 void
