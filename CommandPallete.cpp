@@ -1,4 +1,5 @@
 #include "CommandPallete.h"
+#include <algorithm>
 
 CommandPalette::CommandPalette(BatchRenderer& renderer,
                                int32_t windowWidth,
@@ -97,7 +98,6 @@ CommandPalette::getSelectedItem() const
 void
 CommandPalette::handleTextInput(const char* text)
 {
-
   if (m_inputText.empty()) {
     if (text[0] == '@') {
       switchMode(CommandPaletteMode::FunctionList);
@@ -105,6 +105,8 @@ CommandPalette::handleTextInput(const char* text)
       switchMode(CommandPaletteMode::SystemCommand);
     } else if (text[0] == '#') {
       switchMode(CommandPaletteMode::CommentList);
+    } else if (text[0] == '?') {
+      switchMode(CommandPaletteMode::TextSearch);
     } else {
       switchMode(CommandPaletteMode::FileList);
     }
@@ -137,6 +139,9 @@ CommandPalette::switchMode(CommandPaletteMode newMode)
       case CommandPaletteMode::CommentList:
         updateCommentList();
         break;
+      case CommandPaletteMode::TextSearch:
+        updateTextSearchResults();
+        break;
     }
   }
 }
@@ -152,6 +157,8 @@ CommandPalette::checkAndUpdateMode()
     switchMode(CommandPaletteMode::SystemCommand);
   } else if (m_inputText[0] == '#') {
     switchMode(CommandPaletteMode::CommentList);
+  } else if (m_inputText[0] == '?') {
+    switchMode(CommandPaletteMode::TextSearch);
   } else {
     switchMode(CommandPaletteMode::FileList);
   }
@@ -220,32 +227,21 @@ CommandPalette::filterItems()
   m_filteredItems.clear();
   std::string filter = m_inputText;
   if ((m_mode == CommandPaletteMode::FunctionList ||
-       m_mode == CommandPaletteMode::CommentList) &&
+       m_mode == CommandPaletteMode::CommentList ||
+       m_mode == CommandPaletteMode::TextSearch) &&
       !m_inputText.empty()) {
-    filter = m_inputText.substr(1);
+    filter = m_inputText.substr(1); // skip special character in input
   }
 
   std::transform(filter.begin(), filter.end(), filter.begin(), ::tolower);
 
-  // special handling for our beloved SystemCommand mode
-  if (m_mode == CommandPaletteMode::SystemCommand) {
-    if (filter.substr(0, 5) == "/wdir") {
-      m_filteredItems.push_back(Item(m_inputText));
-    } else {
-      for (const auto& item : m_items) {
-        std::string lowercaseText = item.displayText;
-        std::transform(lowercaseText.begin(),
-                       lowercaseText.end(),
-                       lowercaseText.begin(),
-                       ::tolower);
-
-        if (lowercaseText.find(filter) != std::string::npos) {
-          m_filteredItems.push_back(item);
-        }
+  if (m_mode == CommandPaletteMode::TextSearch) {
+    for (const auto& item : m_items) {
+      if (item.displayText.find(filter) != std::string::npos) {
+        m_filteredItems.push_back(item);
       }
     }
   } else {
-    // filtering for other modes
     for (const auto& item : m_items) {
       std::string lowercaseText = item.displayText;
       std::transform(lowercaseText.begin(),
@@ -274,9 +270,11 @@ CommandPalette::handleInput(SDL_Event e)
           break;
         case SDLK_UP:
           navigateUp();
+          onItemPreview(m_filteredItems[m_selectedIndex]);
           break;
         case SDLK_DOWN:
           navigateDown();
+          onItemPreview(m_filteredItems[m_selectedIndex]);
           break;
         case SDLK_RETURN: {
           if (m_mode == CommandPaletteMode::SystemCommand) {
@@ -321,6 +319,9 @@ CommandPalette::handleInput(SDL_Event e)
 
     case SDL_EVENT_TEXT_INPUT: {
       handleTextInput(e.text.text);
+      if (m_mode == CommandPaletteMode::TextSearch) {
+        updateTextSearchResults();
+      }
     } break;
   }
 }
@@ -349,7 +350,7 @@ CommandPalette::render()
     return;
 
   // @background
-  float paletteWidth = m_windowWidth * 0.6f;
+  float paletteWidth = m_windowWidth * 0.7f;
   float paletteHeight = m_windowHeight * 0.6f;
   Vector2 palettePosition = { (m_windowWidth - paletteWidth) * 0.5f,
                               (m_windowHeight - paletteHeight) * 0.5f };
@@ -394,44 +395,47 @@ CommandPalette::render()
                      0.0f,
                      ORIGIN_TOP_LEFT,
                      LAYER_UI);
+  if (m_mode == CommandPaletteMode::TextSearch) {
+    renderTextSearchResults();
+  } else {
+    float itemHeight = 30.0f;
+    m_maxVisibleItems =
+      (int32_t)((paletteHeight - inputHeight - 20.0f) / itemHeight);
 
-  float itemHeight = 30.0f;
-  m_maxVisibleItems =
-    (int32_t)((paletteHeight - inputHeight - 20.0f) / itemHeight);
-
-  for (int32_t i = 0; i < m_maxVisibleItems &&
-                      (size_t)(i + m_scrollOffset) < m_filteredItems.size();
-       i++) {
-    int32_t index = i + m_scrollOffset;
-    Vector2 itemPosition = { palettePosition.x + 10.0f,
-                             palettePosition.y + inputHeight + i * itemHeight +
-                               20.0f };
-    if (index == m_selectedIndex) {
-      m_renderer.AddQuad({ itemPosition.x, itemPosition.y },
-                         paletteWidth - 20.0f,
-                         itemHeight,
-                         RGBA32(0x218c74),
-                         0.0f,
-                         ORIGIN_TOP_LEFT,
-                         LAYER_UI);
-    }
-
-    const auto& item = m_filteredItems[index];
-    Vector4 textColor = WHITE;
-
-    if (m_mode == CommandPaletteMode::CommentList) {
-      if (item.displayText.substr(0, 4) == "TODO") {
-        textColor = ORANGE;
-      } else if (item.displayText.substr(0, 4) == "NOTE") {
-        textColor = WHITE;
+    for (int32_t i = 0; i < m_maxVisibleItems &&
+                        (size_t)(i + m_scrollOffset) < m_filteredItems.size();
+         i++) {
+      int32_t index = i + m_scrollOffset;
+      Vector2 itemPosition = { palettePosition.x + 10.0f,
+                               palettePosition.y + inputHeight +
+                                 i * itemHeight + 20.0f };
+      if (index == m_selectedIndex) {
+        m_renderer.AddQuad({ itemPosition.x, itemPosition.y },
+                           paletteWidth - 20.0f,
+                           itemHeight,
+                           RGBA32(0x218c74),
+                           0.0f,
+                           ORIGIN_TOP_LEFT,
+                           LAYER_UI);
       }
-    }
 
-    m_renderer.DrawText(m_filteredItems[index].displayText.c_str(),
-                        { itemPosition.x + 5.0f, itemPosition.y + 20.0f },
-                        fontSize,
-                        textColor,
-                        LAYER_UI);
+      const auto& item = m_filteredItems[index];
+      Vector4 textColor = WHITE;
+
+      if (m_mode == CommandPaletteMode::CommentList) {
+        if (item.displayText.substr(0, 4) == "TODO") {
+          textColor = ORANGE;
+        } else if (item.displayText.substr(0, 4) == "NOTE") {
+          textColor = WHITE;
+        }
+      }
+
+      m_renderer.DrawText(m_filteredItems[index].displayText.c_str(),
+                          { itemPosition.x + 5.0f, itemPosition.y + 20.0f },
+                          fontSize,
+                          textColor,
+                          LAYER_UI);
+    }
 #if 0
     if (m_mode == CommandPaletteMode::CommentList ||
         m_mode == CommandPaletteMode::FunctionList) {
@@ -460,6 +464,9 @@ CommandPalette::render()
     case CommandPaletteMode::CommentList:
       modeText = "Tasks";
       break;
+    case CommandPaletteMode::TextSearch:
+      modeText = "Search";
+      break;
   }
   modeText += " (" + std::to_string(m_filteredItems.size()) + ")";
 
@@ -470,6 +477,102 @@ CommandPalette::render()
     fontSize,
     WHITE,
     LAYER_UI);
+}
+
+void
+CommandPalette::renderTextSearchResults()
+{
+  float itemHeight = 30.0f;
+  float paletteWidth = m_windowWidth * 0.7f;
+  float paletteHeight = m_windowHeight * 0.6f;
+  Vector2 palettePosition = { (m_windowWidth - paletteWidth) * 0.5f,
+                              (m_windowHeight - paletteHeight) * 0.5f };
+  float inputHeight = 30.0f;
+
+  m_maxVisibleItems =
+    (int32_t)((paletteHeight - inputHeight - 20.0f) / itemHeight);
+
+  for (int32_t i = 0; i < m_maxVisibleItems &&
+                      (size_t)(i + m_scrollOffset) < m_filteredItems.size();
+       i++) {
+    int32_t index = i + m_scrollOffset;
+
+    Vector2 itemPosition = { palettePosition.x + 10.0f,
+                             palettePosition.y + inputHeight + i * itemHeight +
+                               20.0f };
+    if (index == m_selectedIndex) {
+      m_renderer.AddQuad({ itemPosition.x, itemPosition.y },
+                         paletteWidth - 20.0f,
+                         itemHeight,
+                         RGBA32(0x218c74),
+                         0.0f,
+                         ORIGIN_TOP_LEFT,
+                         LAYER_UI);
+    }
+
+    const auto& item = m_filteredItems[index];
+
+    std::string displayText = item.displayText;
+    size_t highlightStart = displayText.find("<highlight>");
+    size_t highlightEnd = displayText.find("</highlight>");
+
+    if (highlightStart != std::string::npos &&
+        highlightEnd != std::string::npos) {
+      // before the highlight
+      m_renderer.DrawText(displayText.substr(0, highlightStart).c_str(),
+                          { itemPosition.x + 5.0f, itemPosition.y + 20.0f },
+                          fontSize,
+                          WHITE,
+                          LAYER_UI);
+
+      // highlighted part
+      float preHighlightWidth =
+        m_renderer
+          .MeasureText(displayText.substr(0, highlightStart).c_str(), fontSize)
+          .x;
+      m_renderer.DrawText(
+        displayText
+          .substr(highlightStart + 10, highlightEnd - highlightStart - 10)
+          .c_str(),
+        { itemPosition.x + 5.0f + preHighlightWidth, itemPosition.y + 20.0f },
+        fontSize,
+        YELLOW,
+        LAYER_UI);
+
+      // after the highlight
+      float highlightWidth =
+        m_renderer
+          .MeasureText(
+            displayText
+              .substr(highlightStart + 10, highlightEnd - highlightStart - 10)
+              .c_str(),
+            fontSize)
+          .x;
+      m_renderer.DrawText(
+        displayText.substr(highlightEnd + 11).c_str(),
+        { itemPosition.x + 5.0f + preHighlightWidth + highlightWidth,
+          itemPosition.y + 20.0f },
+        fontSize,
+        WHITE,
+        LAYER_UI);
+    } else {
+      // if no highlight tags, then we are drawing the whole text
+      m_renderer.DrawText(displayText.c_str(),
+                          { itemPosition.x + 5.0f, itemPosition.y + 20.0f },
+                          fontSize,
+                          WHITE,
+                          LAYER_UI);
+    }
+
+    // line number
+    std::string lineNumber = "L: " + std::to_string(item.visual_line_number);
+    m_renderer.DrawText(
+      lineNumber.c_str(),
+      { itemPosition.x + paletteWidth - 80.0f, itemPosition.y + 20.0f },
+      fontSize * 0.8f,
+      YELLOW,
+      LAYER_UI);
+  }
 }
 
 void
@@ -588,5 +691,53 @@ CommandPalette::updateCommentList()
     ++it;
   }
 
+  filterItems();
+}
+
+void
+CommandPalette::updateTextSearchResults()
+{
+  m_items.clear();
+  if (m_inputText.length() > 1) {
+    std::string searchQuery = m_inputText.substr(1); // remove ? prefix
+    searchQuery = searchQuery;
+    if (!searchQuery.empty()) {
+      try {
+        std::string regexPattern = "(" + searchQuery + ")";
+        std::regex searchRegex(regexPattern,
+                               std::regex::icase | std::regex::optimize);
+        std::sregex_iterator it(
+          m_editorText.begin(), m_editorText.end(), searchRegex);
+        std::sregex_iterator end;
+        size_t lineNumber = 1;
+        auto searchStart = m_editorText.cbegin();
+        while (it != end) {
+          std::smatch match = *it;
+          lineNumber += std::count(searchStart, match[0].first, '\n');
+          auto lineStart =
+            std::find_if(m_editorText.crbegin() +
+                           (m_editorText.cend() - match[0].first),
+                         m_editorText.crend(),
+                         [](char c) { return c == '\n'; })
+              .base();
+          auto lineEnd = std::find(match[0].second, m_editorText.cend(), '\n');
+          std::string fullLine(lineStart, lineEnd);
+          size_t matchPosInLine = std::distance(lineStart, match[0].first);
+          std::string formattedContext = fullLine;
+          formattedContext.insert(matchPosInLine + match.length(),
+                                  "</highlight>");
+          formattedContext.insert(matchPosInLine, "<highlight>");
+          m_items.emplace_back(formattedContext,
+                               std::distance(m_editorText.cbegin(), lineStart),
+                               lineNumber);
+          searchStart = match[0].second;
+          ++it;
+        }
+      } catch (const std::regex_error& e) {
+        std::cerr << "Invalid regex: " << e.what() << "\n";
+        m_items.emplace_back("Invalid search pattern", 0, 0);
+      }
+    }
+  }
   filterItems();
 }

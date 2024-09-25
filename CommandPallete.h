@@ -11,6 +11,7 @@ enum class CommandPaletteMode : size_t
   FunctionList,
   SystemCommand,
   CommentList,
+  TextSearch,
 };
 
 class CommandPalette
@@ -50,6 +51,7 @@ public:
 
 public:
   std::function<void(const Item&)> onItemSelect;
+  std::function<void(const Item&)> onItemPreview;
   std::function<void(const std::string& command)> onCommandSelect;
   void executeSystemCommand(const std::string& command);
   void setWorkDir(std::string pWorkDir);
@@ -63,6 +65,9 @@ private:
   void checkAndUpdateMode();
   void updateSystemCommandList();
   void updateCommentList();
+
+  void updateTextSearchResults();
+  void renderTextSearchResults();
 
   std::vector<std::string> m_systemCommands;
   BatchRenderer& m_renderer;

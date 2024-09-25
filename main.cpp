@@ -228,6 +228,20 @@ main(int32_t argc, char* argv[])
   }
 
   CommandPalette commandPalette(batchRenderer, config.width, config.height);
+
+  commandPalette.onItemPreview = [&](const CommandPalette::Item& item) {
+    switch (commandPalette.getMode()) {
+      case CommandPaletteMode::TextSearch:
+        editor.handleCommandPaletteSelection(item.data);
+        break;
+      case CommandPaletteMode::FileList:
+      case CommandPaletteMode::CommentList:
+      case CommandPaletteMode::FunctionList:
+      case CommandPaletteMode::SystemCommand:
+        break;
+    }
+  };
+
   commandPalette.onItemSelect = [&](const CommandPalette::Item& item) {
     switch (commandPalette.getMode()) {
       case CommandPaletteMode::FileList:
@@ -238,6 +252,7 @@ main(int32_t argc, char* argv[])
           SDL_SetWindowTitle(window, buffer);
         }
         break;
+      case CommandPaletteMode::TextSearch:
       case CommandPaletteMode::CommentList:
       case CommandPaletteMode::FunctionList:
         editor.handleCommandPaletteSelection(item.data);
@@ -262,7 +277,8 @@ main(int32_t argc, char* argv[])
                 << "\n";
       editor.saveBufferToFile();
     } else if (command == "/r") {
-      editor.projectConfigPath = commandPalette.getWorkDir() + "/project_config.json";
+      editor.projectConfigPath =
+        commandPalette.getWorkDir() + "/project_config.json";
       editor.loadProjectConfig();
     } else if (command == "/fmt") {
       editor.formatCodeWithClangFormat();
