@@ -20,7 +20,7 @@
 #define WINDOW_WIDTH 1080
 #define WINDOW_HEIGHT 720
 
-#define EDITOR_NAME "dk_edit"
+#define EDITOR_NAME "DKEDIT"
 
 #include "CommandPallete.h"
 
@@ -36,6 +36,12 @@ main(int32_t argc, char* argv[])
   }
 
   SDL_SetWindowBordered(window, SDL_FALSE);
+
+  SDL_Surface* icon = SDL_LoadBMP("./res/icon.bmp");
+  if (icon != NULL) {
+    SDL_SetWindowIcon(window, icon);
+    SDL_DestroySurface(icon);
+  }
 
   WGPUInstanceDescriptor instanceDescriptor = {};
   instanceDescriptor.nextInChain = nullptr;
@@ -100,8 +106,6 @@ main(int32_t argc, char* argv[])
   WGPUSurfaceCapabilities capabilities;
   wgpuSurfaceGetCapabilities(surface, adapter, &capabilities);
 
-  std::cout << "Format: " << capabilities.formats[1] << std::hex << "\n";
-
   WGPUSurfaceConfiguration config = {};
   config.nextInChain = nullptr;
   config.format = WGPUTextureFormat_BGRA8Unorm; // capabilities.formats[1];
@@ -158,6 +162,7 @@ main(int32_t argc, char* argv[])
   float fpsTimer = 0.0f;
 
   UIContext uiContext = {};
+
 #if 0
   CartesianCoordinateSystem coordinateSystem = {
     .origin = { (float)config.width * 0.5f, (float)config.height * 0.5f },
@@ -236,6 +241,27 @@ main(int32_t argc, char* argv[])
         break;
       case CommandPaletteMode::SystemCommand:
         break;
+    }
+  };
+
+  commandPalette.onCommandSelect = [&](const std::string& command) {
+    if (command == "/q") {
+      std::cout << "Exiting."
+                << "\n";
+      SDL_Event e;
+      e.type = SDL_EVENT_QUIT;
+      SDL_PushEvent(&e);
+    } else if (command.substr(0, 1) == "/n") {
+      std::string filename = command.substr(1);
+      std::cout << "Creating new file " << filename << "\n";
+    } else if (command == "/w") {
+      std::cout << "Saving buffer (not implemented use Ctr+S)."
+                << "\n";
+      editor.saveBufferToFile();
+    } else if (command == "/r") {
+      editor.loadProjectConfig();
+    } else if (command == "/fmt") {
+      editor.formatCodeWithClangFormat();
     }
   };
 
@@ -517,34 +543,35 @@ main(int32_t argc, char* argv[])
       DrawBoundingBox(
         batchRenderer, playerBB, YELLOW, angle, LAYER_GAME_OBJECT);
 
-      const char* hello = "Hello, WebGPU!";
-      text_size = batchRenderer.MeasureText(fpsBuffer, 90.0f);
-      batchRenderer.DrawText(
-        hello,
-        { 10.0f - 2.0f, (config.height - text_size.y * 0.5f) - 2.0f },
-        90.0f,
-        BLACK,
-        LAYER_TEXT);
-      batchRenderer.DrawText(hello,
-                             { 10.0f, config.height - text_size.y * 0.5f },
-                             90.0f,
-                             WHITE,
-                             LAYER_TEXT);
+    const char* hello = "Hello, WebGPU!";
+    Vector2 text_size = batchRenderer.MeasureText(fpsBuffer, 90.0f);
+    batchRenderer.DrawText(hello,
+                           { (WINDOW_WIDTH - text_size.x) - 2.0f,
+                             (config.height - text_size.y * 0.5f) - 2.0f },
+                           90.0f,
+                           BLACK,
+                           LAYER_TEXT);
+    batchRenderer.DrawText(
+      hello,
+      { (WINDOW_WIDTH - text_size.x), config.height - text_size.y * 0.5f },
+      90.0f,
+      WHITE,
+      LAYER_TEXT);
 
-      char debug_text[64];
-      sprintf(debug_text,
-              "(%.0f,%.0f)",
-              uiContext.Mouse.relative.x,
-              uiContext.Mouse.relative.y);
-      batchRenderer.DrawText(debug_text,
-                             { uiContext.Mouse.relative.x + 2.0f,
-                               uiContext.Mouse.relative.y + 2.0f },
-                             30.0f,
-                             BLACK,
-                             LAYER_TEXT);
-      batchRenderer.DrawText(
-        debug_text, uiContext.Mouse.relative, 30.0f, WHITE, LAYER_TEXT);
-    }
+    char debug_text[64];
+    sprintf(debug_text,
+            "(%.0f,%.0f)",
+            uiContext.Mouse.relative.x,
+            uiContext.Mouse.relative.y);
+    batchRenderer.DrawText(
+      debug_text,
+      { uiContext.Mouse.relative.x + 2.0f, uiContext.Mouse.relative.y + 2.0f },
+      30.0f,
+      BLACK,
+      LAYER_TEXT);
+    batchRenderer.DrawText(
+      debug_text, uiContext.Mouse.relative, 30.0f, WHITE, LAYER_TEXT);
+}
 #endif
 
     editor.render(batchRenderer);

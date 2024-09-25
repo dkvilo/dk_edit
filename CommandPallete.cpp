@@ -7,6 +7,7 @@ CommandPalette::CommandPalette(BatchRenderer& renderer,
   , m_windowWidth(windowWidth)
   , m_windowHeight(windowHeight)
   , fontSize(20.0f)
+  , m_workDir(".")
 {
   m_isVisible = false;
   m_selectedIndex = 0;
@@ -88,12 +89,6 @@ CommandPalette::getSelectedItem() const
 }
 
 void
-CommandPalette::updateEditorText(const std::string& text)
-{
-  m_editorText = text;
-}
-
-void
 CommandPalette::handleTextInput(const char* text)
 {
 
@@ -160,12 +155,14 @@ void
 CommandPalette::updateSystemCommandList()
 {
   m_items.clear();
-  m_items.reserve(4);
+  m_items.reserve(6);
 
   m_items.emplace_back("/q", 0);
   m_items.emplace_back("/n", 1);
   m_items.emplace_back("/w", 2);
   m_items.emplace_back("/r", 3);
+  m_items.emplace_back("/fmt", 4);
+  m_items.emplace_back("/wdir", 5);
 
   filterItems();
 }
@@ -178,21 +175,36 @@ CommandPalette::executeSystemCommand(const std::string& command)
     return;
   }
 
-  if (command == "/q") {
-    std::cout << "Exiting."
-              << "\n";
-    SDL_Event e;
-    e.type = SDL_EVENT_QUIT;
-    SDL_PushEvent(&e);
-  } else if (command.substr(0, 1) == "/n") {
-    std::string filename = command.substr(1);
-    std::cout << "Creating new file " << filename << "\n";
-  } else if (command == "/w") {
-    std::cout << "Saving buffer (not implemented use Ctr+S)."
-              << "\n";
-  } else if (command == "/r") {
-    std::cout << "Reloading config."
-              << "\n";
+  if (command.substr(0, 6) == "/wdir ") {
+    std::string dir = command.substr(6);
+    dir = std::regex_replace(dir, std::regex("^\\s+|\\s+$"), "");
+    if (dir.front() == '"' && dir.back() == '"') {
+      dir = dir.substr(1, dir.length() - 2);
+    }
+
+    if (dir[0] == '~') {
+      const char* home = std::getenv("HOME");
+      if (home == nullptr) {
+        std::cerr << "Error: Unable to expand '~'. HOME environment variable "
+                     "not set.\n";
+        return;
+      }
+      dir.replace(0, 1, home);
+    }
+
+    std::filesystem::path path(dir);
+    if (path.is_relative()) {
+      std::cerr << "Error: Please provide an absolute path.\n";
+      return;
+    }
+
+    path = path.lexically_normal();
+    dir = path.string();
+
+    setWorkDir(dir);
+    std::cout << "New Work Dir: " << dir << "\n";
+  } else {
+    onCommandSelect(command);
   }
 }
 
@@ -206,17 +218,38 @@ CommandPalette::filterItems()
       !m_inputText.empty()) {
     filter = m_inputText.substr(1);
   }
+
   std::transform(filter.begin(), filter.end(), filter.begin(), ::tolower);
 
-  for (const auto& item : m_items) {
-    std::string lowercaseText = item.displayText;
-    std::transform(lowercaseText.begin(),
-                   lowercaseText.end(),
-                   lowercaseText.begin(),
-                   ::tolower);
+  // special handling for our beloved SystemCommand mode
+  if (m_mode == CommandPaletteMode::SystemCommand) {
+    if (filter.substr(0, 5) == "/wdir") {
+      m_filteredItems.push_back(Item(m_inputText));
+    } else {
+      for (const auto& item : m_items) {
+        std::string lowercaseText = item.displayText;
+        std::transform(lowercaseText.begin(),
+                       lowercaseText.end(),
+                       lowercaseText.begin(),
+                       ::tolower);
 
-    if (lowercaseText.find(filter) != std::string::npos) {
-      m_filteredItems.push_back(item);
+        if (lowercaseText.find(filter) != std::string::npos) {
+          m_filteredItems.push_back(item);
+        }
+      }
+    }
+  } else {
+    // filtering for other modes
+    for (const auto& item : m_items) {
+      std::string lowercaseText = item.displayText;
+      std::transform(lowercaseText.begin(),
+                     lowercaseText.end(),
+                     lowercaseText.begin(),
+                     ::tolower);
+
+      if (lowercaseText.find(filter) != std::string::npos) {
+        m_filteredItems.push_back(item);
+      }
     }
   }
 
@@ -240,16 +273,18 @@ CommandPalette::handleInput(SDL_Event e)
           navigateDown();
           break;
         case SDLK_RETURN: {
-          if (!m_filteredItems.empty()) {
-            if (m_mode == CommandPaletteMode::SystemCommand) {
+          if (m_mode == CommandPaletteMode::SystemCommand) {
+            if (m_inputText.substr(0, 5) == "/wdir") {
+              executeSystemCommand(m_inputText);
+            } else if (!m_filteredItems.empty()) {
               executeSystemCommand(
                 m_filteredItems[m_selectedIndex].displayText);
-            } else if (onItemSelect) {
-              onItemSelect(m_filteredItems[m_selectedIndex]);
             }
-            m_mode = CommandPaletteMode::FileList;
-            hide();
+          } else if (!m_filteredItems.empty() && onItemSelect) {
+            onItemSelect(m_filteredItems[m_selectedIndex]);
           }
+          m_mode = CommandPaletteMode::FileList;
+          hide();
         } break;
         case SDLK_BACKSPACE:
           if (!m_inputText.empty() && m_cursorPosition > 0) {
@@ -435,13 +470,52 @@ void
 CommandPalette::updateFileList()
 {
   m_items.clear();
-  for (const auto& entry : std::filesystem::directory_iterator(".")) {
-    m_items.emplace_back(entry.path().filename().string());
+  std::set<std::string> dirsToSkip = {
+    ".git", "external", "vendor", "target", "build"
+  };
+
+  std::set<std::string> extensionsToSkip = { ".o",   ".a",   ".so", ".png",
+                                             ".jpg", ".ttf", ".otf" };
+
+  std::filesystem::path workDirPath(m_workDir);
+
+  for (auto it = std::filesystem::recursive_directory_iterator(workDirPath);
+       it != std::filesystem::recursive_directory_iterator();
+       ++it) {
+    if (it->is_directory()) {
+      if (dirsToSkip.find(it->path().filename().string()) != dirsToSkip.end()) {
+        it.disable_recursion_pending();
+      }
+    } else if (it->is_regular_file()) {
+      std::string ext = it->path().extension().string();
+      if (extensionsToSkip.find(ext) != extensionsToSkip.end()) {
+        continue;
+      }
+
+      std::filesystem::path relativePath =
+        std::filesystem::relative(it->path(), workDirPath);
+      std::string displayPath = relativePath.string();
+
+      if (displayPath.length() > 50) {
+        displayPath = "..." + displayPath.substr(displayPath.length() - 47);
+      }
+
+      m_items.emplace_back(it->path().string()); // add support for displayPath
+    }
   }
+
   std::sort(m_items.begin(), m_items.end(), [](const Item& a, const Item& b) {
     return a.displayText < b.displayText;
   });
+
   filterItems();
+}
+
+void
+CommandPalette::setWorkDir(std::string pWorkDir)
+{
+  m_workDir = pWorkDir;
+  updateFileList();
 }
 
 void

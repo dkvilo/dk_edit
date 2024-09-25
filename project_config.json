@@ -1,3 +1,8 @@
 {
-  "build_command" : "make"
+  "build_command" : "make",
+  "format_on_save": true,
+  "formatter": {
+    "bin": "clang-format",
+    "style": "Mozilla"
+  }
 }

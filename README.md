@@ -51,3 +51,16 @@ to use build command you will need to create project_config.json file that will 
   "build_command" : "shell command"
 }
 ```
+
+other configuration options
+
+```json
+{
+  "build_command" : "make",
+  "format_on_save": true,
+  "formatter": {
+    "bin": "clang-format", // here you can specify clang format absolute path, if needed
+    "style": "Mozilla" // Google, LLVM and etc
+  }
+}
+```

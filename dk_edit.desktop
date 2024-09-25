@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=dkEdit
+Exec=/home/dkvilo/dev/github.com/dkvilo/dk_edit/build
+Icon=/home/dkvilo/dev/github.com/dkvilo/dk_edit/res/icon.bmp
+Terminal=false
+Path=/home/dkvilo/dev/github.com/dkvilo/dk_edit

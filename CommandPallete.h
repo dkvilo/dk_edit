@@ -50,8 +50,9 @@ public:
 
 public:
   std::function<void(const Item&)> onItemSelect;
+  std::function<void(const std::string& command)> onCommandSelect;
   void executeSystemCommand(const std::string& command);
-  void updateEditorText(const std::string& text);
+  void setWorkDir(std::string pWorkDir);
 
 private:
   void updateFileList();
@@ -77,4 +78,5 @@ private:
   float fontSize;
   CommandPaletteMode m_mode;
   std::string m_editorText;
+  std::string m_workDir;
 };
