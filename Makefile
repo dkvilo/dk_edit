@@ -9,8 +9,15 @@ SRC_MAIN := $(wildcard *.cpp)
 SRC := $(SRC_BACKEND) $(SRC_MAIN)
 
 OBJ := $(SRC:.cpp=.o)
+ARCH := $(shell uname -m)
 
-LIBS := ./external/lib/libwgpu_native.a ./external/lib/libSDL3.a
+ifeq ($(ARCH), aarch64)
+    LIBS := ./external/lib/linux/aarch64/libwgpu_native.a ./external/lib/linux/aarch64/libSDL3.a -ldl -lpthread
+else ifeq ($(ARCH), x86_64)
+    LIBS := ./external/lib/linux/x86_64/libwgpu_native.a ./external/lib/linux/x86_64/libSDL3.a -ldl -lpthread
+else
+    $(error Unsupported architecture: $(ARCH))
+endif
 
 EXEC := build
 
