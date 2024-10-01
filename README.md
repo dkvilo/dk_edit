@@ -74,4 +74,24 @@ other configuration options
 ```
 
 
+# Build from source
+
+clone the source code (or download the archive).
+
+install the following packages/software if you have to
+
+- make
+- g++ (C++17)
+- libx11-dev
+
+cd to source dir and run
+
+```sh
+make
+```
+
+After a successful compilation, you will end up with a `build` executable in the source dir.
+
+In the source directory, there's a dk_edit.desktop configuration file. If you want to use it, simply edit the path to the binary and drop it into your desktop folder.
+
 
