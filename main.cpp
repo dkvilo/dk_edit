@@ -232,11 +232,11 @@ main(int32_t argc, char* argv[])
   commandPalette.onItemPreview = [&](const CommandPalette::Item& item) {
     switch (commandPalette.getMode()) {
       case CommandPaletteMode::TextSearch:
+      case CommandPaletteMode::CommentList:
+      case CommandPaletteMode::FunctionList:
         editor.handleCommandPaletteSelection(item.data);
         break;
       case CommandPaletteMode::FileList:
-      case CommandPaletteMode::CommentList:
-      case CommandPaletteMode::FunctionList:
       case CommandPaletteMode::SystemCommand:
         break;
     }
