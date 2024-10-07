@@ -19,33 +19,9 @@
 #include "nlohmann/json.hpp"
 
 #include "Math.h"
+#include "Tokenizer.h"
 #include "backend/2d/Renderer.h"
 #include "backend/common.h"
-
-enum class SyntaxElementType
-{
-  Keyword,
-  Identifier,
-  Number,
-  String,
-  CharLiteral,
-  Comment,
-  Operator,
-  Preprocessor,
-  Default
-};
-
-struct SyntaxStyle
-{
-  Vector4 color;
-};
-
-struct SyntaxToken
-{
-  SyntaxElementType type;
-  std::string text;
-  size_t startPos;
-};
 
 struct WrappedLine
 {

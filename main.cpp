@@ -1,7 +1,5 @@
 /**
  * $author David Kviloria <david@skystargames.com>
- * Simple 2D batch renderer implemented in WebGPU Native Backend.
- *
  * $file main.cpp
  */
 
@@ -11,18 +9,14 @@
 #include "backend/2d/Renderer.h"
 #include "backend/common.h"
 
+#include "CommandPallete.h"
 #include "Editor.h"
 #include "Imui.h"
 #include "Platform.h"
-#include "PlayMath.h"
-#include "widget/PerfVisualizer.h"
 
 #define WINDOW_WIDTH 1080
 #define WINDOW_HEIGHT 720
-
 #define EDITOR_NAME "DKEDIT"
-
-#include "CommandPallete.h"
 
 int
 main(int32_t argc, char* argv[])
@@ -136,26 +130,8 @@ main(int32_t argc, char* argv[])
   bool is_running = true;
   SDL_Event e;
 
-  BatchRenderer batchRenderer(
-    device, commandQueue, config.width, config.height);
-  batchRenderer.Initialize();
-
-  Vector2 position = { 400.0f, 300.0f };
-
-  const float speed = 200.0f;
-
   Uint64 lastTime = SDL_GetPerformanceCounter();
   float deltaTime = 0.0f;
-
-  float texCoords[4][2] = {};
-
-  SpriteFrameDesc spriteDesc = {};
-  spriteDesc.sprite_size = { 16.0f, 16.0f };
-  spriteDesc.sprite_coord = { 17.0f, 31.0f };
-  spriteDesc.texture.width = 512;
-  spriteDesc.texture.height = 512;
-
-  TextureSpriteTexCoords(spriteDesc, texCoords);
 
   int32_t frameCount = 0;
   float fps = 0.0f;
@@ -163,41 +139,9 @@ main(int32_t argc, char* argv[])
 
   UIContext uiContext = {};
 
-#if 0
-  CartesianCoordinateSystem coordinateSystem = {
-    .origin = { (float)config.width * 0.5f, (float)config.height * 0.5f },
-    .screenSize = { (float)config.width, (float)config.height },
-    .scale = 50.0f, // pixels per unit
-    .axisColor = BLACK,
-    .gridColor = RGBA32(0x4E4D5D),
-    .textColor = WHITE
-  };
-
-  Vector2 vectorStart = { 400.0f, 300.0f };
-  float vectorLength = 50.0f;
-  Vector2 vectorToVisualize = { vectorLength, 0.0f };
-
-  ControlPoint p0 = { { 100, 500 }, false };
-  ControlPoint p1 = { { 400, 100 }, false };
-  ControlPoint p2 = { { 700, 500 }, false };
-
-  p0 = { { 400, 300 }, false };
-  p1 = { { 200, 100 }, false };
-  p2 = { { 600, 100 }, false };
-  ControlPoint p3 = { { 700, 300 }, false };
-#endif
-
-  float graphWidth = 200.0f;
-  float graphHeight = 20.0f;
-  int maxSegments = 30;
-  Vector2 graphOrigin = { 10.0f,
-                          config.height - ((graphHeight * 0.5f) - 10.0f) };
-
-  PerfVisualizer perfVisualizer(
-    batchRenderer, graphOrigin, graphWidth, graphHeight, maxSegments);
-
-  Vector4 lineColor = { 0.0f, 1.0f, 0.0f, 1.0f };
-  Vector4 spikeColor = { 1.0f, 0.0f, 0.0f, 1.0f };
+  BatchRenderer batchRenderer(
+    device, commandQueue, config.width, config.height);
+  batchRenderer.Initialize();
 
   Vector2 editor_position = { 10.0f, 50.0f };
   float fontSize = 23.0f;
@@ -324,17 +268,10 @@ main(int32_t argc, char* argv[])
 
             wgpuSurfaceConfigure(surface, &config);
             editor.resize(config.width, config.height);
-            perfVisualizer.Resize(config.width, config.height);
             commandPalette.resize(config.width, config.height);
           } break;
 
           case SDL_EVENT_KEY_DOWN: {
-#if 0
-            if (e.key.key == SDLK_ESCAPE) {
-              is_running = false;
-            }
-            else
-#endif
             if (e.key.key == SDLK_P) {
               if (ctrlPressed) {
                 commandPalette.show();
@@ -356,39 +293,6 @@ main(int32_t argc, char* argv[])
     Uint32 mouseState = SDL_GetMouseState(&uiContext.Mouse.relative.x,
                                           &uiContext.Mouse.relative.y);
     uiContext.Mouse.pressed = (mouseState & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0;
-
-#if 0
-    HandleMouseDragging(p0, uiContext.Mouse.relative, uiContext.Mouse.pressed);
-    HandleMouseDragging(p1, uiContext.Mouse.relative, uiContext.Mouse.pressed);
-    HandleMouseDragging(p2, uiContext.Mouse.relative, uiContext.Mouse.pressed);
-    HandleMouseDragging(p3, uiContext.Mouse.relative, uiContext.Mouse.pressed);
-#endif
-
-    const SDL_bool* keyboardState = SDL_GetKeyboardState(NULL);
-    if (keyboardState[SDL_SCANCODE_A]) {
-      position.x -= speed * deltaTime;
-    }
-    if (keyboardState[SDL_SCANCODE_D]) {
-      position.x += speed * deltaTime;
-    }
-    if (keyboardState[SDL_SCANCODE_W]) {
-      position.y -= speed * deltaTime;
-    }
-    if (keyboardState[SDL_SCANCODE_S]) {
-      position.y += speed * deltaTime;
-    }
-
-    if (position.x < 0)
-      position.x = 0;
-    if (position.x > batchRenderer.windowWidth)
-      position.x = batchRenderer.windowWidth;
-    if (position.y < 0)
-      position.y = 0;
-    if (position.y > batchRenderer.windowHeight)
-      position.y = batchRenderer.windowHeight;
-
-    position = vector2_lerp(position, uiContext.Mouse.relative, deltaTime);
-
     editor.update(deltaTime);
 
     // RENDER -----------------------------------------------
@@ -437,162 +341,6 @@ main(int32_t argc, char* argv[])
 
     WGPURenderPassEncoder passEncoder =
       wgpuCommandEncoderBeginRenderPass(encoder, &renderPassDesc);
-
-    perfVisualizer.AddFPS(1.0f / deltaTime);
-    perfVisualizer.Draw(lineColor, spikeColor);
-
-    char fpsBuffer[64];
-    sprintf(fpsBuffer, "FPS: %.0f / %.2f ms", fps, deltaTime * 1000.0f);
-    Vector2 fps_text_position = { 10.0f - 2.0f, (config.height) - 2.0f };
-    batchRenderer.DrawText(
-      fpsBuffer, fps_text_position, 30.0f, BLACK, LAYER_TEXT);
-
-    fps_text_position.x += 2.0f;
-    fps_text_position.y += 2.0f;
-    batchRenderer.DrawText(
-      fpsBuffer, fps_text_position, 30.0f, WHITE, LAYER_TEXT);
-
-#if 0
-    {
-      float dx = uiContext.Mouse.relative.x - vectorStart.x;
-      float dy = uiContext.Mouse.relative.y - vectorStart.y;
-      float newAngle = atan2f(dy, dx);
-
-      vectorToVisualize.x = vectorLength * cos(newAngle);
-      vectorToVisualize.y = vectorLength * sin(newAngle);
-
-      DrawCartesianAxes(batchRenderer, coordinateSystem);
-      DrawCartesianGrid(batchRenderer, coordinateSystem);
-      DrawCartesianLabels(batchRenderer, coordinateSystem);
-      Visualize2DVector(
-        batchRenderer, vectorStart, vectorToVisualize, 3.0f, BLUE);
-
-      // control points
-      DrawControlPoint(batchRenderer, p0, 10.0f, RED);
-      DrawControlPoint(batchRenderer, p1, 10.0f, GREEN);
-      DrawControlPoint(batchRenderer, p2, 10.0f, YELLOW);
-      DrawControlPoint(batchRenderer, p3, 10.0f, PURPLE);
-
-      DrawQuadraticBezierControlHandles(
-        batchRenderer, p0.position, p1.position, p2.position, YELLOW, 1.0f);
-      DrawCubicBezierControlHandles(batchRenderer,
-                                    p0.position,
-                                    p1.position,
-                                    p2.position,
-                                    p3.position,
-                                    YELLOW,
-                                    1.0f);
-      DrawQuadraticBezier(
-        batchRenderer, p0.position, p1.position, p2.position, GREEN, 5.0f);
-      DrawCubicBezier(batchRenderer,
-                      p0.position,
-                      p1.position,
-                      p2.position,
-                      p3.position,
-                      BLUE,
-                      5.0f);
-
-      static Vector4 color = RED;
-      BoundingBox playerBB =
-        CreateBoundingBoxFromCenter(&position, 100.0f, 100.0f);
-      if (IsPointInside(&playerBB, &uiContext.Mouse.relative)) {
-        color = GREEN;
-      } else {
-        color = RED;
-      }
-
-      static float rotationAngle = 100.0f;
-      float rotationSpeed = 15.0f;
-      float distanceFromQuad = 10.0f;
-
-      rotationAngle = rotationSpeed * deltaTime;
-      if (rotationAngle > 2.0f * M_PI) {
-        rotationAngle -= 2.0f * M_PI;
-      }
-
-      batchRenderer.AddQuad(
-        position, 100, 100, color, 0.0f, ORIGIN_CENTER, LAYER_GAME_OBJECT);
-
-      float angle =
-        atan2f(uiContext.Mouse.relative.y, uiContext.Mouse.relative.x);
-
-      Vector2 quadCenter = { position.x, position.y };
-      float textX = quadCenter.x + distanceFromQuad * cos(rotationAngle);
-      float textY = quadCenter.y + distanceFromQuad * sin(rotationAngle);
-      Vector2 textPosition = { textX, textY };
-
-      batchRenderer.AddQuad(
-        position, 50, 50, GREEN, angle, ORIGIN_CENTER, LAYER_GAME_OBJECT);
-      batchRenderer.AddQuad(
-        { 600, 450 }, 150, 75, BLUE, -angle, ORIGIN_CENTER, LAYER_BACKGROUND);
-
-      batchRenderer.AddLine({ 100.0f, 300.0f },
-                            { 700.0f, 300.0f },
-                            10.0f,
-                            RED,
-                            angle,
-                            ORIGIN_CENTER,
-                            LAYER_GAME_OBJECT);
-
-      batchRenderer.AddLine({ 400.0f, 100.0f },
-                            { 400.0f, 500.0f },
-                            10.0f,
-                            GREEN,
-                            angle,
-                            ORIGIN_CENTER,
-                            LAYER_GAME_OBJECT);
-
-      batchRenderer.AddLine({ 100.0f, 100.0f },
-                            { 700.0f, 500.0f },
-                            10.0f,
-                            BLUE,
-                            angle,
-                            ORIGIN_CENTER,
-                            LAYER_GAME_OBJECT);
-
-      batchRenderer.AddTexturedQuad({ 400, 300 },
-                                    200,
-                                    200,
-                                    texCoords,
-                                    1,
-                                    WHITE,
-                                    angle,
-                                    ORIGIN_CENTER,
-                                    LAYER_BACKGROUND);
-
-      DrawBoundingBox(
-        batchRenderer, playerBB, YELLOW, angle, LAYER_GAME_OBJECT);
-
-    const char* hello = "Hello, WebGPU!";
-    Vector2 text_size = batchRenderer.MeasureText(fpsBuffer, 90.0f);
-    batchRenderer.DrawText(hello,
-                           { (WINDOW_WIDTH - text_size.x) - 2.0f,
-                             (config.height - text_size.y * 0.5f) - 2.0f },
-                           90.0f,
-                           BLACK,
-                           LAYER_TEXT);
-    batchRenderer.DrawText(
-      hello,
-      { (WINDOW_WIDTH - text_size.x), config.height - text_size.y * 0.5f },
-      90.0f,
-      WHITE,
-      LAYER_TEXT);
-
-    char debug_text[64];
-    sprintf(debug_text,
-            "(%.0f,%.0f)",
-            uiContext.Mouse.relative.x,
-            uiContext.Mouse.relative.y);
-    batchRenderer.DrawText(
-      debug_text,
-      { uiContext.Mouse.relative.x + 2.0f, uiContext.Mouse.relative.y + 2.0f },
-      30.0f,
-      BLACK,
-      LAYER_TEXT);
-    batchRenderer.DrawText(
-      debug_text, uiContext.Mouse.relative, 30.0f, WHITE, LAYER_TEXT);
-}
-#endif
 
     editor.render(batchRenderer);
     if (commandPalette.isVisible()) {
