@@ -3,8 +3,6 @@
 </div>
 <br />
 
-## !!! The current version of the editor only works on X11. There is ongoing work to support Wayland. !!!
-
 This is my personal text editor, which I use to build pretty much everything. The editor is tailored to my personal needs, so it's needless to say that **most** of the features are opinionated.
 
 The editor is primarily meant for use with C and C++. It has built-in support for `clang-format`, but no LSP or autocomplete tools.
