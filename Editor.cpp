@@ -50,7 +50,7 @@ SimpleTextEditor::SimpleTextEditor(BatchRenderer& renderer,
   updateCursorTargetPosition();
 
   textChanged = true;
-  std::vector<WrappedLine> lines = wrapText(text);
+  const std::vector<WrappedLine>& lines = wrapText(text);
   float totalContentHeight = lines.size() * lineHeight;
   maxScrollOffsetY = std::max(0.0f, totalContentHeight - editorHeight);
   scrollOffsetY = 0;
@@ -69,7 +69,7 @@ SimpleTextEditor::handleCommandPaletteSelection(size_t position)
   resetSelection();
   updateCursorTargetPosition();
 
-  std::vector<WrappedLine> lines = wrapText(text);
+  const std::vector<WrappedLine>& lines = wrapText(text);
   size_t lineIndex = getLineIndexAtPosition(cursorPosition, lines);
   scrollOffsetY = lineIndex * lineHeight;
   scrollOffsetY = std::max(0.0f, std::min(scrollOffsetY, maxScrollOffsetY));
@@ -248,7 +248,7 @@ SimpleTextEditor::loadTextFromFile(const std::string& filename)
     updateCursorTargetPosition();
 
     textChanged = true;
-    std::vector<WrappedLine> lines = wrapText(text);
+    const std::vector<WrappedLine>& lines = wrapText(text);
     float totalContentHeight = lines.size() * lineHeight;
     maxScrollOffsetY = std::max(0.0f, totalContentHeight - editorHeight);
     scrollOffsetY = 0;
@@ -583,7 +583,7 @@ SimpleTextEditor::insertTab(bool unindent)
     size_t start = std::min(selectionStart, selectionEnd);
     size_t end = std::max(selectionStart, selectionEnd);
 
-    std::vector<WrappedLine> lines = wrapText(text);
+    const std::vector<WrappedLine>& lines = wrapText(text);
     size_t startLine = getLineIndexAtPosition(start, lines);
     size_t endLine = getLineIndexAtPosition(end, lines);
 
@@ -648,7 +648,7 @@ SimpleTextEditor::removeTab()
     size_t start = std::min(selectionStart, selectionEnd);
     size_t end = std::max(selectionStart, selectionEnd);
 
-    std::vector<WrappedLine> lines = wrapText(text);
+    const std::vector<WrappedLine>& lines = wrapText(text);
     size_t startLine = getLineIndexAtPosition(start, lines);
     size_t endLine = getLineIndexAtPosition(end, lines);
 
@@ -685,10 +685,10 @@ void
 SimpleTextEditor::toggleComment()
 {
   if (selectionStart == selectionEnd) {
-    std::vector<WrappedLine> lines = wrapText(text);
+    const std::vector<WrappedLine>& lines = wrapText(text);
     size_t lineIndex = getLineIndexAtPosition(cursorPosition, lines);
     size_t lineStart = lines[lineIndex].startPos;
-    std::string& lineText = lines[lineIndex].text;
+    const std::string& lineText = lines[lineIndex].text;
 
     if (lineText.substr(0, 2) == "//") {
       text.erase(lineStart, 2);
@@ -738,7 +738,7 @@ SimpleTextEditor::jumpToBottom()
 void
 SimpleTextEditor::jumpToMiddleOfLine()
 {
-  std::vector<WrappedLine> lines = wrapText(text);
+  const std::vector<WrappedLine>& lines = wrapText(text);
   size_t currentLineIndex = getLineIndexAtPosition(cursorPosition, lines);
   const WrappedLine& currentLine = lines[currentLineIndex];
 
@@ -755,7 +755,7 @@ SimpleTextEditor::duplicateLine()
 {
   if (!text.size())
     return;
-  std::vector<WrappedLine> lines = wrapText(text);
+  const std::vector<WrappedLine>& lines = wrapText(text);
 
   if (selectionStart == selectionEnd) {
     size_t lineIndex = getLineIndexAtPosition(cursorPosition, lines);
@@ -866,9 +866,7 @@ void
 SimpleTextEditor::moveCursorUp(bool shiftPressed)
 {
   size_t oldCursorPosition = cursorPosition;
-
-  std::vector<WrappedLine> lines = wrapText(text);
-
+  const std::vector<WrappedLine>& lines = wrapText(text);
   size_t lineIndex = getLineIndexAtPosition(cursorPosition, lines);
   if (lineIndex == 0)
     return;
@@ -886,8 +884,7 @@ void
 SimpleTextEditor::moveCursorDown(bool shiftPressed)
 {
   size_t oldCursorPosition = cursorPosition;
-  std::vector<WrappedLine> lines = wrapText(text);
-
+  const std::vector<WrappedLine>& lines = wrapText(text);
   size_t lineIndex = getLineIndexAtPosition(cursorPosition, lines);
   if (lineIndex >= lines.size() - 1)
     return;
@@ -905,8 +902,7 @@ void
 SimpleTextEditor::moveCursorToLineStart(bool shiftPressed)
 {
   size_t oldCursorPosition = cursorPosition;
-
-  std::vector<WrappedLine> lines = wrapText(text);
+  const std::vector<WrappedLine>& lines = wrapText(text);
   size_t lineIndex = getLineIndexAtPosition(cursorPosition, lines);
   cursorPosition = getLineStartPosition(lineIndex, lines);
 
@@ -917,8 +913,7 @@ void
 SimpleTextEditor::moveCursorToLineEnd(bool shiftPressed)
 {
   size_t oldCursorPosition = cursorPosition;
-
-  std::vector<WrappedLine> lines = wrapText(text);
+  const std::vector<WrappedLine>& lines = wrapText(text);
   size_t lineIndex = getLineIndexAtPosition(cursorPosition, lines);
   cursorPosition =
     getLineStartPosition(lineIndex, lines) + lines[lineIndex].text.length();
@@ -996,7 +991,7 @@ SimpleTextEditor::saveBufferToFile()
 void
 SimpleTextEditor::updateCursorTargetPosition()
 {
-  std::vector<WrappedLine> lines = wrapText(text);
+  const std::vector<WrappedLine>& lines = wrapText(text);
   float y = position.y;
 
   for (size_t i = 0; i < lines.size(); ++i) {
@@ -1024,7 +1019,7 @@ SimpleTextEditor::updateCursorTargetPosition()
 void
 SimpleTextEditor::render(BatchRenderer& renderer)
 {
-  std::vector<WrappedLine> lines = wrapText(text);
+  const std::vector<WrappedLine>& lines = wrapText(text);
   float y = position.y - scrollOffsetY;
   if (textChanged) {
     tokens = tokenize(text);
@@ -1246,6 +1241,7 @@ std::vector<WrappedLine>
 SimpleTextEditor::wrapText(const std::string& text)
 {
   std::vector<WrappedLine> wrappedLines;
+  wrappedLines.reserve(1024 << 1);
 
   float availableWidth = editorWidth - lineNumberWidth - 20.0f;
 
@@ -1262,7 +1258,7 @@ SimpleTextEditor::wrapText(const std::string& text)
       line.startPos = textPos;
       line.logicalLineIndex = logicalLineIndex;
       line.logicalLineStartPos = logicalLineStartPos;
-      wrappedLines.push_back(line);
+      wrappedLines.emplace_back(line);
 
       textPos++;
 
@@ -1291,7 +1287,7 @@ SimpleTextEditor::wrapText(const std::string& text)
     line.startPos = lineStartPos;
     line.logicalLineIndex = logicalLineIndex;
     line.logicalLineStartPos = logicalLineStartPos;
-    wrappedLines.push_back(line);
+    wrappedLines.emplace_back(line);
 
     if (textPos < length && text[textPos] == '\n') {
       textPos++;
