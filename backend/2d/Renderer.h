@@ -1,16 +1,17 @@
-#pragma once 
+#pragma once
 
-#include <vector>
-#include <stdint.h>
+#include "../../Math.h"
 #include "SDL3/SDL.h"
 #include "SDL3/SDL_events.h"
 #include "webgpu/webgpu.h"
 #include "wgpu/wgpu.h"
-#include "../../Math.h"
+#include <stdint.h>
+#include <vector>
 
-#include "stb/stb_truetype.h"
 #include "stb/stb_image.h"
+#include "stb/stb_truetype.h"
 
+// clang-format off
 #define WHITE { 1.0f, 1.0f, 1.0f, 1.0f }
 #define BLACK { 0.0f, 0.0f, 0.0f, 1.0f }
 #define RED { 1.0f, 0.0f, 0.0f, 1.0f }
@@ -42,6 +43,7 @@
 #define ORIGIN_CENTER     { 0.5f, 0.5f }
 #define ORIGIN_BOTTOM_RIGHT { 1.0f, 1.0f }
 #define ORIGIN_BOTTOM_LEFT { -1.0f, 1.0f }
+// clang-format on
 
 enum Layer
 {
@@ -179,7 +181,6 @@ public:
                                // Georgian lang support for now...)
   } fontData;
 };
-
 
 Vector4
 RGBA32(uint32_t hexColor);
