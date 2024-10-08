@@ -1,9 +1,11 @@
 #include "Editor.h"
 #include "Tokenizer.h"
 
+#include <chrono>
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <signal.h>
 #include <sstream>
 #include <stack>
 #include <stdio.h>
@@ -16,6 +18,8 @@
 extern std::map<SyntaxElementType, SyntaxStyle> syntaxStyles;
 extern inline const std::unordered_set<std::string> cKeywords;
 extern inline const std::unordered_set<char> cOperators;
+
+constexpr int32_t OFFSET_FROM_BOTTOM = 80;
 
 SimpleTextEditor::SimpleTextEditor(BatchRenderer& renderer,
                                    Vector2 pos,
@@ -42,7 +46,7 @@ SimpleTextEditor::SimpleTextEditor(BatchRenderer& renderer,
   recalculateFontMetrics();
   lineNumberWidth = measureTextWidth("000") + 20.0f;
   editorWidth = renderer.windowWidth;
-  editorHeight = renderer.windowHeight - 50;
+  editorHeight = renderer.windowHeight - OFFSET_FROM_BOTTOM;
 
   text = " ";
   cursorPosition = 0;
@@ -55,6 +59,164 @@ SimpleTextEditor::SimpleTextEditor(BatchRenderer& renderer,
   maxScrollOffsetY = std::max(0.0f, totalContentHeight - editorHeight);
   scrollOffsetY = 0;
 }
+
+// note (David) WIP CTAGS Integration
+void
+SimpleTextEditor::generateCtags()
+{
+  std::filesystem::path filePath(bufferName);
+  std::string fileName = filePath.filename().string();
+
+  if (!std::filesystem::exists(filePath)) {
+    std::cerr << "Error: File does not exist - " << fileName << std::endl;
+    return;
+  }
+
+  std::string command = "ctags --fields=+l --languages=C,C++ --exclude=.git "
+                        "--exclude=build --exclude=external " +
+                        fileName;
+
+  int32_t result = system(command.c_str());
+  if (result != 0) {
+    std::cerr << "Error: Failed to generate ctags, error code: " << result
+              << std::endl;
+  }
+}
+
+void
+SimpleTextEditor::parseTagsFile()
+{
+  std::ifstream tagsFile("tags");
+  if (!tagsFile.is_open()) {
+    std::cerr << "Error: Unable to open tags file" << std::endl;
+    return;
+  }
+
+  std::string line;
+  while (std::getline(tagsFile, line)) {
+    // metadata lines with '!'
+    if (line.empty() || line[0] == '!')
+      continue;
+
+    std::istringstream iss(line);
+    std::string token, file, patternOrLine;
+
+    if (!(iss >> token >> file))
+      continue;
+
+    std::getline(iss, patternOrLine, ';');
+
+    std::string pattern;
+    std::size_t start = patternOrLine.find('"');
+    std::size_t end = patternOrLine.rfind('"');
+    if (start != std::string::npos && end != std::string::npos &&
+        start != end) {
+      pattern = patternOrLine.substr(start + 1, end - start - 1);
+    } else {
+      pattern = patternOrLine;
+    }
+
+    tagDefinitions[token] = pattern;
+  }
+}
+
+std::string
+SimpleTextEditor::getTokenDeclaration(const std::string& token)
+{
+  auto it = tagDefinitions.find(token);
+  if (it != tagDefinitions.end()) {
+    return it->second;
+  }
+  return "";
+}
+
+void
+SimpleTextEditor::updateTokenInfo()
+{
+  generateCtags();
+  parseTagsFile();
+}
+
+std::string
+SimpleTextEditor::getHoverInfo(const std::string& token)
+{
+  std::string declaration = getTokenDeclaration(token);
+  if (!declaration.empty()) {
+    return declaration;
+  }
+  return "NOT FOUND";
+}
+
+std::string
+SimpleTextEditor::getCurrentTokenUnderCursor()
+{
+  if (cursorPosition >= text.length()) {
+    return "";
+  }
+
+  size_t start = cursorPosition;
+  while (start > 0 &&
+         (std::isalnum(text[start - 1]) || text[start - 1] == '_')) {
+    start--;
+  }
+
+  size_t end = cursorPosition;
+  while (end < text.length() && (std::isalnum(text[end]) || text[end] == '_')) {
+    end++;
+  }
+
+  return text.substr(start, end - start);
+}
+
+void
+SimpleTextEditor::displayHoverInfo(const std::string& info,
+                                   const Vector2& position)
+{
+  hoverInfo = info;
+  hoverPosition = position;
+  showHoverInfo = true;
+}
+
+// todo (David): wip detailed info on hover
+void
+SimpleTextEditor::renderHoverInfo(BatchRenderer& renderer)
+{
+  if (!showHoverInfo || hoverInfo.empty()) {
+    return;
+  }
+
+  Vector2 textSize = measureText(hoverInfo);
+  float padding = 5.0f;
+  float boxWidth = textSize.x + 2 * padding;
+  float boxHeight = textSize.y + 2 * padding;
+
+  float x = std::max(
+    padding, std::min(hoverPosition.x, editorWidth - boxWidth - padding));
+  float y = std::max(
+    padding, std::min(hoverPosition.y, editorHeight - boxHeight - padding));
+
+  renderer.AddQuad({ x, y },
+                   boxWidth,
+                   boxHeight,
+                   { 0.2f, 0.2f, 0.2f, 0.9f },
+                   0.0f,
+                   ORIGIN_TOP_LEFT,
+                   LAYER_UI + 1);
+
+  renderer.DrawText(hoverInfo.c_str(),
+                    { x + padding, y + padding },
+                    fontSize,
+                    WHITE,
+                    LAYER_UI + 2);
+}
+
+void
+SimpleTextEditor::hideHoverInfo()
+{
+  showHoverInfo = false;
+}
+
+// [/CTAGS]
 
 const std::string&
 SimpleTextEditor::getText() const
@@ -79,7 +241,7 @@ void
 SimpleTextEditor::resize(uint32_t width, uint32_t height)
 {
   editorWidth = width;
-  editorHeight = height;
+  editorHeight = height - OFFSET_FROM_BOTTOM;
   recalculateFontMetrics();
 }
 
@@ -100,6 +262,45 @@ SimpleTextEditor::loadProjectConfig()
   } else {
     std::cerr << "Error: Unable to open project configuration file."
               << projectConfigPath << std::endl;
+    exit(-1);
+  }
+}
+
+static std::string build_command_status = "IDLE";
+static pid_t build_process_pid = -1;
+static std::chrono::steady_clock::time_point build_start_time;
+
+void
+handle_sigchld(int sig)
+{
+  int status;
+  pid_t pid;
+  while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
+    if (pid == build_process_pid) {
+      auto build_end_time = std::chrono::steady_clock::now();
+      auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+        build_end_time - build_start_time);
+
+      std::string time_info =
+        " (took " + std::to_string(duration.count()) + "ms)";
+
+      if (WIFEXITED(status)) {
+        int exit_status = WEXITSTATUS(status);
+        if (exit_status == 0) {
+          build_command_status = "COMPLETED" + time_info;
+        } else {
+          build_command_status =
+            "FAILED (Exit code: " + std::to_string(exit_status) + ")" +
+            time_info;
+        }
+      } else if (WIFSIGNALED(status)) {
+        int term_sig = WTERMSIG(status);
+        build_command_status =
+          "FAILED (Terminated by signal: " + std::to_string(term_sig) + ")" +
+          time_info;
+      }
+      build_process_pid = -1;
+    }
   }
 }
 
@@ -109,13 +310,21 @@ SimpleTextEditor::executeBuildCommand()
   if (projectConfig.contains("build_command")) {
     std::string buildCommand = projectConfig["build_command"];
     std::cout << "Executing build command: " << buildCommand << std::endl;
-
     std::filesystem::path configDir =
       std::filesystem::path(projectConfigPath).parent_path();
 
+    struct sigaction sa;
+    sa.sa_handler = &handle_sigchld;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESTART | SA_NOCLDSTOP;
+    if (sigaction(SIGCHLD, &sa, 0) == -1) {
+      perror("sigaction");
+      return;
+    }
+
+    build_start_time = std::chrono::steady_clock::now();
     pid_t pid = fork();
     if (pid == 0) {
-
       if (!configDir.empty()) {
         if (chdir(configDir.c_str()) != 0) {
           std::cerr << "Error: Failed to change directory to " << configDir
@@ -123,7 +332,6 @@ SimpleTextEditor::executeBuildCommand()
           std::exit(1);
         }
       }
-
       char* args[] = {
         (char*)"/bin/sh", (char*)"-c", (char*)buildCommand.c_str(), nullptr
       };
@@ -132,13 +340,17 @@ SimpleTextEditor::executeBuildCommand()
       std::exit(1);
     } else if (pid > 0) {
       std::cout << "Build process started (PID: " << pid << ")" << std::endl;
+      build_command_status = "STARTED (" + std::to_string(pid) + ")";
+      build_process_pid = pid;
     } else {
       std::cerr << "Error: Failed to fork process" << std::endl;
+      build_command_status = "FAILED (Fork error)";
     }
   } else {
     std::cerr
       << "Error: No build command specified in the project configuration."
       << std::endl;
+    build_command_status = "FAILED (No build command)";
   }
 }
 
@@ -256,6 +468,8 @@ SimpleTextEditor::loadTextFromFile(const std::string& filename)
     std::cout << "File loaded successfully: " << filename << std::endl;
 
     bufferName = filename;
+
+    updateTokenInfo();
   } else {
     std::cerr << "Error: Unable to open file: " << filename << std::endl;
   }
@@ -266,7 +480,21 @@ SimpleTextEditor::handleInput(SDL_Event& event)
 {
   bool shiftPressed = (SDL_GetModState() & SDL_KMOD_SHIFT) != 0;
   bool ctrlPressed = (SDL_GetModState() & SDL_KMOD_CTRL) != 0;
+#if 0
+  if (event.type == SDL_EVENT_MOUSE_MOTION) {
+    std::string token = getCurrentTokenUnderCursor();
+    if (!token.empty()) {
+      std::string info = getHoverInfo(token);
+      displayHoverInfo(info,
+                       { static_cast<float>(event.motion.x),
+                         static_cast<float>(event.motion.y) });
+    } else {
+      hideHoverInfo();
+    }
+  }
 
+  else
+#endif
   if (event.type == SDL_EVENT_KEY_DOWN) {
     textChanged = true;
     switch (event.key.key) {
@@ -305,23 +533,6 @@ SimpleTextEditor::handleInput(SDL_Event& event)
           duplicateLine();
         }
         break;
-#if 0
-          case SDLK_HOME:
-            if (ctrlPressed) {
-              jumpToTop();
-            } else {
-              moveCursorToLineStart(shiftPressed);
-            }
-            break;
-
-          case SDLK_END:
-            if (ctrlPressed) {
-              jumpToBottom();
-            } else {
-              moveCursorToLineEnd(shiftPressed);
-            }
-            break;
-#endif
       case SDLK_M:
         if (ctrlPressed) {
           jumpToMiddleOfLine();
@@ -367,10 +578,19 @@ SimpleTextEditor::handleInput(SDL_Event& event)
         }
         break;
       case SDLK_HOME:
-        moveCursorToLineStart(shiftPressed);
+        if (ctrlPressed) {
+          jumpToTop();
+        } else {
+          moveCursorToLineStart(shiftPressed);
+        }
         break;
+
       case SDLK_END:
-        moveCursorToLineEnd(shiftPressed);
+        if (ctrlPressed) {
+          jumpToBottom();
+        } else {
+          moveCursorToLineEnd(shiftPressed);
+        }
         break;
       case SDLK_RETURN:
       case SDLK_KP_ENTER:
@@ -558,7 +778,7 @@ SimpleTextEditor::increaseFontSize()
 void
 SimpleTextEditor::decreaseFontSize()
 {
-  float minFontSize = 26.0f;
+  float minFontSize = 23.0f;
   fontSize -= 2.0f;
   if (fontSize < minFontSize) {
     fontSize = minFontSize;
@@ -1192,6 +1412,46 @@ SimpleTextEditor::render(BatchRenderer& renderer)
                        LAYER_UI);
     }
   }
+}
+
+void
+SimpleTextEditor::renderBar(BatchRenderer& renderer)
+{
+  Vector4 bgColor = GREY;
+  if (build_command_status.find("STARTED") != std::string::npos) {
+    bgColor = ORANGE;
+  } else if (build_command_status.find("FAILED") != std::string::npos) {
+    bgColor = RED;
+  } else if (build_command_status.find("FAILED") != std::string::npos ||
+             build_command_status == "IDLE") {
+    bgColor = GREY;
+  }
+
+  renderer.AddQuad({ 10.0f, editorHeight + 50.0f },
+                   editorWidth - 20.0f,
+                   20.0f,
+                   bgColor,
+                   0.0f,
+                   ORIGIN_TOP_LEFT,
+                   LAYER_UI);
+
+  std::string tokenInfo = "NOT FOUND";
+  std::string currentToken = getCurrentTokenUnderCursor();
+  if (!currentToken.empty()) {
+    std::string info = getHoverInfo(currentToken);
+    tokenInfo = info;
+  }
+
+  char buffer[255];
+  const char* name = bufferName.empty() ? "Untitled" : bufferName.c_str();
+  sprintf(buffer,
+          "Buffer: %s | Build: %s | CTAGS: %s",
+          name,
+          build_command_status.c_str(),
+          tokenInfo.c_str());
+
+  renderer.DrawText(
+    buffer, { 20.0f, editorHeight + (50.0f + 15.0f) }, 20.0f, WHITE, LAYER_UI);
 }
 
 void

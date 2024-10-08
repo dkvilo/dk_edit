@@ -46,7 +46,6 @@ main(int32_t argc, char* argv[])
   }
 
   WGPUSurface surface = SDL_GetWGPUSurface(instance, window);
-
   WGPURequestAdapterOptions adapterOptions = {};
   adapterOptions.compatibleSurface = surface;
 
@@ -345,6 +344,11 @@ main(int32_t argc, char* argv[])
     editor.render(batchRenderer);
     if (commandPalette.isVisible()) {
       commandPalette.render();
+    }
+
+    uint32_t flags = SDL_GetWindowFlags(window);
+    if ((flags & SDL_WINDOW_INPUT_FOCUS) != 0) {
+      editor.renderBar(batchRenderer);
     }
 
     batchRenderer.Render(passEncoder);
