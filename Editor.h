@@ -72,6 +72,24 @@ private:
   std::stack<std::string> redoStack;
   const size_t MAX_STACK_SIZE = 100;
 
+  std::string currentToken;
+  std::unordered_map<std::string, std::string> tagDefinitions;
+  
+  void generateCtags();
+  void parseTagsFile();
+  std::string getTokenDeclaration(const std::string& token);
+  void updateTokenInfo();
+  std::string getHoverInfo(const std::string& token);
+
+  std::string hoverInfo;
+  Vector2 hoverPosition;
+  bool showHoverInfo;
+
+  std::string getCurrentTokenUnderCursor();
+  void displayHoverInfo(const std::string& info, const Vector2& position);
+  void renderHoverInfo(BatchRenderer& renderer);
+  void hideHoverInfo();
+
 public:
   std::string projectConfigPath;
 
@@ -83,6 +101,8 @@ public:
                    Vector4 cColor,
                    Vector4 sColor,
                    Vector4 lnColor);
+
+  void renderBar(BatchRenderer& renderer);
 
   const std::string& getText() const;
 
@@ -177,6 +197,7 @@ public:
 
   std::vector<WrappedLine> wrapText(const std::string& text);
 
+public:
   size_t getLineIndexAtPosition(size_t position,
                                 const std::vector<WrappedLine>& lines);
 
